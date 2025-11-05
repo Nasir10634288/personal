@@ -1,0 +1,508 @@
+---
+title: "lab 6 - Time Series Methods"
+subtitle: "BSMM 8740 Fall 2025"
+author: "Mohammad Nasir Uddin"
+format: html
+editor: visual
+self-contained: true
+---
+
+## Introduction
+
+In today's lab, you'll practice building `workflows` with `recipes`, `parsnip` models, `rsample` cross validations, and model comparison in the context of time series data.
+
+## Getting started
+
+-   To complete the lab, log on to **your** github account and then go to the class [GitHub organization](https://github.com/bsmm-8740-fall-2025) and find the **2025-lab-6-\[your github username\]** repository .
+
+    Create an R project using your **2025-lab-6-\[your github username\]** repository (remember to create a PAT, etc.) and add your answers by editing the `2025-lab-6.qmd` file in your repository.
+
+-   When you are done, be sure to: **save** your document, **stage**, **commit** and [**push**]{.underline} your work.
+
+::: callout-important
+To access Github from the lab, you will need to make sure you are logged in as follows:
+
+-   username: **.\\daladmin**
+-   password: **Business507!**
+
+Remember to (create a PAT and set your git credentials)
+
+-   create your PAT using `usethis::create_github_token()` ,
+-   store your PAT with `gitcreds::gitcreds_set()` ,
+-   set your username and email with
+    -   `usethis::use_git_config( user.name = ___, user.email = ___)`
+:::
+
+## Packages
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# check if 'librarian' is installed and if not, install it
+if (! "librarian" %in% rownames(installed.packages()) ){
+  install.packages("librarian")
+}
+  
+# load packages if not already loaded
+librarian::shelf(tidyverse, Lahman, magrittr, gt, gtExtras, ggplot2, tidymodels, modeltime, TSrepr)
+
+# set the efault theme for plotting
+theme_set(theme_bw(base_size = 18) + theme(legend.position = "top"))
+```
+
+::: callout-warning
+## Package installs
+
+If you install packages outside of the ones below, [**remove**]{.underline} your `install.packages(.)` code [**before submitting your solutions**]{.underline}.
+
+Leaving instructions that will install packages may cause your code to fail, but more importantly, it can corrupt the TA/instructor's system.
+:::
+
+## The Data
+
+Today we will be using electricity demand data, based on a paper by James W Taylor:
+
+> Taylor, J.W. (2003) Short-term electricity demand forecasting using double seasonal exponential smoothing. Journal of the Operational Research Society, 54, 799-805.
+
+The data can be found in the `timetk` package as `timetk::taylor_30_min`, a tibble with dimensions: 4,032 x 2
+
+-   `date`: A date-time variable in 30-minute increments
+
+-   `value`: Electricity demand in Megawatts
+
+```{r}
+#| eval: true
+#| message: false
+#| warning: false
+#| label: get electricity demand data
+data <- timetk::taylor_30_min
+```
+
+## Exercise 1: EDA
+
+Plot the data using the functions `timetk::plot_time_series`, `timetk::plot_acf_diagnostics` (using 100 lags), and `timetk::plot_seasonal_diagnostics`.
+
+timetk::plot_acf_diagnostics(
+
+.data = data,
+
+.date_var = date,
+
+.value = value,
+
+.lags = 100,
+
+.title = "Autocorrelation of Electricity Demand (100 Lags)"
+
+)
+
+::: {#Q1 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q1:
+
+```{r}
+#| label: plot demand time series
+# timetk::plot_time_series
+timetk::taylor_30_min %>% 
+  timetk::plot_time_series(
+    date,
+    value,
+    .title = "Short-term electricity demand (30 min)"
+  )
+```
+
+```{r}
+#| label: plot demand autocorrelation
+# timetk::plot_acf_diagnostics
+timetk::taylor_30_min |>
+  timetk::plot_acf_diagnostics(
+    date,
+    value,
+    .lags = 100,
+    .title = "Lag Diagnostics - Short-term electricity demand (30 min)"
+  )
+
+```
+
+```{r}
+#| label: plot demand seasonality
+# timetk::plot_seasonal_diagnostics
+timetk::taylor_30_min |>
+  timetk::plot_seasonal_diagnostics(
+    date,
+    value,
+    .title = "Seasonal Diagnostics - Short-term electricity demand (30 min)"
+  )
+
+```
+:::
+
+## Exercise 2: Time scaling
+
+The raw data has 30 minute intervals between data points. Downscale the data to 60 minute intervals, using `timetk::summarise_by_time`, revising the electricity demand (value) variable by adding the two 30-minute intervals in each 60-minute interval. Assign the downscaled data to the variable `taylor_60_min`.
+
+::: {#Q2 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q2:
+
+```{r}
+#| echo: true
+#| label: set seed and then downscale data from 30 minute intervals to 60 minute intervals
+# downscale the data (down to a lower frequency of measurement)
+set.seed(8740)
+taylor_60_min <- 
+  timetk::taylor_30_min |>
+  timetk::summarise_by_time(
+    .date_var = date,
+    .by = "hour",
+    value = sum(value)
+  )
+
+```
+:::
+
+## Exercise 3: Training and test datasets
+
+1.  Split the new (60 min) time series into training and test sets using `timetk::time_series_split`
+    1.  set the training period ('initial') to '2 months' and the assessment period to '1 weeks'
+2.  Prepare the data resample specification with `timetk::tk_time_series_cv_plan()` and plot it with `timetk::plot_time_series_cv_plan`
+3.  Separate the training and test data sets using `rsample` .
+
+::: {#Q3 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q3:
+
+```{r}
+#| label: compute a split of the demand time series into training and test datasets 
+# split
+splits <-
+  taylor_60_min |>
+  timetk::time_series_split(
+    initial = "2 months"
+    , assess = "1 weeks"
+  )
+```
+
+```{r}
+#| label: plot the data showing training and test data on the same plot
+# plot splits
+splits |>
+  timetk::tk_time_series_cv_plan() |>
+  timetk::plot_time_series_cv_plan(
+    .date_var = date
+    , .value = value
+    , .title = "Cross Validation Plan - Short-term electricity demand (30 min)"
+  )
+
+
+```
+
+```{r}
+#| label: separate the demand data into training and test datasets
+# separate into train and test data sets
+train <- rsample::training(splits) 
+test  <- rsample::testing(splits)
+```
+:::
+
+## Exercise 4: recipes
+
+1.  Create a base recipe (base_rec) using the formula `value ~ date` and the training data. This will be used for non-regression models
+
+2.  Create a recipe (lm_rec) using the formula `value ~ .` and the `training` data. This will be used for regression models. For this recipe:
+
+    1.  add time series signature features using `timetk::step_timeseries_signature` with the appropriate argument,
+    2.  add a step to select the columns `value`, `date_index.num`, `date_month.lbl`, `date_wday.lbl`, `date_hour` ,
+    3.  add a normalization step targeting `date_index.num` ,
+    4.  add a step to mutate `date_hour`, changing it to a factor,
+    5.  add a step to one-hot encode nominal predictors.
+
+c\)
+
+::: {#Q4 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q4:
+
+```{r}
+#| echo: true
+#| label: create a base recipe and assign to `base_rec`, then create a recipe for regression models on time series assgend to `lm_rec`
+# 
+# base recipe
+base_rec <- 
+  train |>
+  recipes::recipe(value ~ date)
+
+# regression recipe
+lm_rec <- train |>
+  recipes::recipe(value ~ .) |>
+  timetk::step_timeseries_signature(date) |>
+  recipes::step_select(value, date_index.num, date_month.lbl, date_wday.lbl, date_hour) |>
+  step_normalize(date_index.num) |>
+  recipes::step_mutate(date_hour = date_hour |> as.factor()) |>
+  recipes::step_dummy(all_nominal(), one_hot = TRUE)
+
+```
+:::
+
+## Exercise 5 models
+
+Now we will create a several models to estimate electricity demand, as follows
+
+1.  Create a model specification for an exponential smoothing model using engine 'ets'
+2.  Create a model specification for an arima model using engine 'auto_arima'
+3.  Create a model specification for a linear model using engine 'glmnet' and penalty = 0.02, mixture = 0.5
+
+::: {#Q5 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q5:
+
+```{r}
+#| echo: true
+#| label: create model specifications for exp-smoothing, arima, and penalized linear (glmnet) models
+#
+model_ets <- modeltime::exp_smoothing() |>
+  parsnip::set_engine(engine = "ets")
+
+model_arima <- modeltime::arima_reg() |>
+  parsnip::set_engine("auto_arima")
+
+model_lm <- parsnip::linear_reg(penalty = 0.02, mixture = 0.5) |>
+  set_engine("glmnet")
+
+
+```
+:::
+
+## Exercise 6 model fitting
+
+Create a workflow **for each model** using `workflows::workflow`.
+
+1.  Add a recipe to the workflow
+    1.  the linear model uses the `lm_rec` recipe created above
+    2.  the `ets` and `arima` models use the `base_rec` recipe created above
+2.  Add a model to each workflow
+3.  Fit with the training data
+
+::: {#Q6 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q6:
+
+```{r}
+#| echo: true
+#| label: create workflows for each of the three models, then fit them with the training data.
+#
+workflow_fit_ets <- workflows::workflow() |>
+  workflows::add_recipe(base_rec) |>
+  workflows::add_model(model_ets) |>
+  parsnip::fit(train)
+
+workflow_fit_arima <- workflows::workflow() |>
+  workflows::add_recipe(base_rec) |>
+  workflows::add_model(model_arima) |>
+  parsnip::fit(train)
+
+workflow_fit_lm <- workflows::workflow() |>
+  workflows::add_recipe(lm_rec) |>
+  workflows::add_model(model_lm) |>
+  parsnip::fit(train)
+```
+:::
+
+::: render-commit-push
+This is a good place to **save**, **stage**, **commit**, and **push** changes to your remote lab repo on GitHub. Click the checkbox next to each file in the Git pane to stage the updates you've made, write an informative commit message, and push. After you push the changes, the Git pane in RStudio should be empty.
+:::
+
+## Exercise 7: calibrate
+
+In this exercise we'll use the **testing data** with our fitted models.
+
+1.  Create a table with the fitted workflows using `modeltime::modeltime_table`
+2.  Using the table you just created, run a calibration on the **test data** with the function `modeltime::modeltime_calibrate`.
+3.  Compare the accuracy of the models using the `modeltime::modeltime_accuracy()` on the results of the calibration
+
+:::: {#Q7 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q7:
+
+```{r}
+#| echo: true
+#| label: put the fits into a model table and calibrate them on the tests data, then compare accuracies. Identify the best one.
+#
+
+model_tbl <- modeltime::modeltime_table(
+  workflow_fit_ets,
+  workflow_fit_arima,
+  workflow_fit_lm
+)
+
+calibration_tbl <- model_tbl |>
+  modeltime::modeltime_calibrate(test)
+
+calibration_tbl |> modeltime::modeltime_accuracy()
+
+
+```
+
+::: callout-important
+Which is the best model by the (smallest) **rmse** metric? **GLMNET**
+:::
+::::
+
+## Exercise 8: forecast - training data
+
+Use the calibration table with `modeltime::modeltime_forecast` to graphically compare the fits to the training data with the observed values.
+
+::: {#Q8 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q8:
+
+```{r}
+#| label: use the calibration table and compare fitted forecasts to observed values
+#
+calibration_tbl |>
+  modeltime::modeltime_forecast(
+    new_data = test,
+    actual_data = taylor_60_min
+  ) |>
+  modeltime::plot_modeltime_forecast()
+
+
+```
+:::
+
+## Exercise 9: forecast - future
+
+Now refit the models using the **full data set** (using the calibration table and `modeltime::modeltime_refit`). Save the result in the variable **refit_tbl**.
+
+1.  Use the refit data in the variable **refit_tbl**, along with `modeltime::modeltime_forecast` and argument `h` = '2 weeks' (remember to also set the `actual_data` argument). This will use the models to forecast electricity demand two weeks into the future.
+2.  Plot the forecast with `modeltime::plot_modeltime_forecast`
+
+::: {#Q9 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q9:
+
+```{r}
+#| echo: true
+#| label: refit the model on the full dataset and save in `refit_tbl`. Forecast and then plot two weeks beyond end of full dataset.
+#
+refit_tbl <- calibration_tbl |>
+  modeltime::modeltime_refit(data = taylor_60_min)
+
+refit_tbl |>
+  modeltime::modeltime_forecast(h = "2 weeks", actual_data = taylor_60_min) %>%
+  modeltime::plot_modeltime_forecast(
+    .legend_max_width = 12,   # For mobile screens
+    .interactive = TRUE
+  )
+
+```
+:::
+
+## Exercise 10: Seasonal Time Series Modeling for Retail Forecasting
+
+You are working as a Senior Business Analyst for "TechMart," a consumer electronics retailer with 50 stores across North America. The company is planning its inventory strategy for 2025 and needs accurate forecasts of monthly sales. The CFO has specifically requested that you use advanced decomposition methods that can handle the complex seasonal patterns in electronics retail.
+
+You have been provided with 60 months of historical sales data (Jan 2019 - Dec 2023) showing strong monthly seasonality (holiday shopping peaks) and an underlying growth trend due to market expansion.
+
+```{r}
+#| label: load 60 months of inventory data and summarize it. Sales in Millions.
+#
+# retail data
+retail_dat <- readr::read_csv('data/TechMart_sales.csv',show_col_types = FALSE) %>%
+  mutate(date = lubridate::ymd(date))
+
+# Display data summary
+cat("TechMart Monthly Sales Data Summary:\n")
+cat("====================================\n")
+cat("Period:", format(min(retail_dat$date), "%b %Y"), "to", 
+    format(max(retail_dat$date), "%b %Y"), "\n")
+cat("Observations:", nrow(retail_dat), "\n")
+
+print(summary(retail_dat$monthly_sales))
+```
+
+Using the `modeltime` and `parsnip` frameworks,
+
+1.  build and compare ETS(A,A,A) and ETS(M,MD,M) models. Use log(sales) as the outcome. Use `workflows` and `modeltime::exp_smoothing`, setting the error, trend, season, and damped argument explicitly for each model (see the help for `modeltime::exp_smoothing` ). For ETS(M,M,M), set damping = "damped" (NOTE: the default is 'damped').
+
+2.  forecast sales one month ahead, and extract the forecast for January 2024. Plot the forecasts.
+
+::: {#Q10 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q10:
+
+```{r}
+#| echo: true
+#| label: build and evaluate two models - ETS(A,A,A) and ETS(M,M,M). Forecast one month ahead to predict sales for January 2024. Plot the two model estimates, with error bars.
+#
+# create a recipe ----
+base_rec <-
+  retail_dat |>
+  recipes::recipe(monthly_sales ~ date) |>
+  recipes::step_log(monthly_sales)
+
+# specify the models ----
+model_ets_AAA <-
+  modeltime::exp_smoothing(
+    error  = "additive",
+    trend  = "additive",
+    season = "additive",
+    damping = "none"
+  ) |>
+  parsnip::set_engine(engine = "ets")
+
+model_ets_MMM <-
+  modeltime::exp_smoothing(
+    error  = "multiplicative",
+    trend  = "multiplicative",
+    season = "multiplicative",
+    damping = "damped"
+  ) |>
+  parsnip::set_engine(engine = "ets")
+
+# create the workflows ----
+workflow_fit_AAA <- workflows::workflow() |>
+  workflows::add_recipe(base_rec) |>
+  workflows::add_model(model_ets_AAA) |>
+  parsnip::fit(retail_dat)
+
+workflow_fit_MMM <- workflows::workflow() |>
+  workflows::add_recipe(base_rec) |>
+  workflows::add_model(model_ets_MMM) |>
+  parsnip::fit(retail_dat)
+
+
+# predict one month ahead ----
+model_tbl <- modeltime::modeltime_table(
+  workflow_fit_AAA, workflow_fit_MMM
+)
+
+calibration_tbl <- model_tbl |>
+  modeltime::modeltime_calibrate(retail_dat)
+
+predictions <- calibration_tbl |>
+  modeltime::modeltime_forecast(h = "1 month", actual_data = retail_dat)
+
+
+# plot the predictions ----
+predictions |>
+  dplyr::slice_tail(n = 2) |>
+  ggplot(aes(x = .model_desc, y = .value)) +
+  geom_point(size = 3, color = "blue") +
+  geom_errorbar(aes(ymin = .conf_lo, ymax = .conf_hi), width = 0.2, color = "blue") +
+  labs(
+    title = "Predictions with Error Bars",
+    x = "Model",
+    y = "Sales ($millions)"
+  ) +
+  theme_minimal()
+
+```
+
+Which model should you present to management? ETS(M,MD,M)\
+
+You're done and ready to submit your work! **Save**, **stage**, **commit**, and **push** all remaining changes. You can use the commit message "Done with Lab 6!" , and make sure you have committed and pushed all changed files to GitHub (your Git pane in RStudio should be empty) and that **all** documents are updated in your repo on GitHub.
+:::
+
+::: callout-warning
+## Submission
+
+I will pull (copy) everyone's repository submissions at 5:00pm on the Sunday following class, and I will work only with these copies, so anything submitted after 5:00pm will not be graded. (**don't forget to commit and then push your work!**)
+:::
+
+## Grading
+
+Total points available: 30 points.
+
+![](images/rubric10.png){fig-align="center" width="600"}
