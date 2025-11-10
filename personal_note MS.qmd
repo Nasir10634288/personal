@@ -1,0 +1,610 @@
+---
+title: "BSMM-midterm"
+subtitle: "BSMM 8740 Fall 2025"
+author: "Add your name here"
+editor: visual
+format: html
+self-contained: true
+---
+
+# Instructions
+
+## Getting started
+
+-   To complete the midterm, log on to **your** github account and then go to the class [GitHub organization](https://github.com/bsmm-8740-fall-2024) and find the **2025_midterm-\[your github username\]** repository .
+
+    Create an R project using your **2025_midterm-\[your github username\]** repository (remember to create a PAT, etc.) and add your answers by editing the `2025-midterm.qmd` file in your repository.
+
+-   When you are done, be sure to: **save** your document, **stage**, **commit** and [**push**]{.underline} your work.
+
+::: callout-important
+To access Github from the lab, you will need to make sure you are logged in as follows:
+
+-   username: **.\\daladmin**
+-   password: **Business507!**
+
+Remember to
+
+-   create your PAT using `usethis::create_github_token()` ,
+-   store your PAT with `gitcreds::gitcreds_set()` ,
+-   set your username and email with
+    -   `usethis::use_git_config( user.name = ___, user.email = ___)`
+:::
+
+## Packages
+
+```{r}
+#| message: false
+# check if 'librarian' is installed and if not, install it
+if (! "librarian" %in% rownames(installed.packages()) ){
+  install.packages("librarian")
+}
+  
+# load packages if not already loaded
+librarian::shelf(
+  tidyverse, broom, rsample, ggdag, causaldata, halfmoon, ggokabeito, malcolmbarrett/causalworkshop
+  , magrittr, ggplot2, estimatr, Formula, r-causal/propensity, gt, gtExtras)
+
+# set the default theme for plotting
+theme_set(theme_bw(base_size = 18) + theme(legend.position = "top"))
+```
+
+## Overview
+
+The midterm will be released on Wednesday, November 05, and is designed to be completed in 90+ minutes.
+
+The exam will consist of two parts:
+
+1.  **Part 1 - Conceptual:** Simple questions designed to evaluate your familiarity with the written course notes.
+2.  **Part 2 - Applied:** Data analysis in RStudio (like a usual lab, but simpler).
+
+Be sure that you have [saved]{.underline}, [staged]{.underline}, [committed]{.underline}, and [pushed]{.underline} your work before the end of the exam.
+
+🍀 Good luck! 🍀
+
+## Academic Integrity
+
+By taking this exam, you pledge to that:
+
+-   I will not lie, cheat, or steal in my academic endeavors;
+
+-   I will conduct myself honorably in all my endeavors; and
+
+-   I will act if the Standard is compromised.
+
+## Rules & Notes
+
+-   This is an individual assignment. Everything in your repository is for your eyes only.
+
+-   You may not collaborate or communicate anything about this exam to **anyone** except the instructor. For example, you may not communicate with other students or post/solicit help on the internet, email, chat, or via any other method of communication.
+
+-   The exam is open-book, open-note, so you may use **any materials from class** as you take the exam.
+
+## Submission
+
+-   Your answers should be typed in the document below (or answer by deleting alternative answers in multiple choice questions.
+
+-   Make sure you **commit** any changes and **push** the changes to the course repository before the end of the exam.
+
+-   Once the final exam has ended, the contents of your repository will be pulled for grading. This will happen only once, so no changes made after the end of the exam will be recorded.
+
+------------------------------------------------------------------------
+
+# Part 1
+
+## Q-1
+
+In the context of time series, ***partial autocorrelation*** measures are:
+
+::: {#Q1 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q1:
+
+*Delete the wrong answer(s):*
+
+-   The direct effect of past values on the current value - C
+-   The total correlation between two points in time
+-   The indirect effect of past values on the current value
+-   The correlation between two variables, removing the effect of intervening variables - C
+:::
+
+## Q-2
+
+In a causal DAG, a ***confounder*** is:
+
+::: {#Q2 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q2:
+
+*Delete the wrong answer(s) below*.
+
+-   A variable that is affected by the cause
+-   A variable that influences both the cause and effect - C
+-   A variable that has no impact on the relationship
+-   A variable that is only affected by the effect
+:::
+
+## Q-3
+
+***Stationarity*** in time series analysis means that:
+
+::: {#Q3 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q3:
+
+*Delete the wrong answer(s) below*.
+
+-   The series has no missing values
+-   The series is increasing over time
+-   The series has a constant mean and variance over time - C
+-   The series is represented by a straight line
+:::
+
+## Q-4
+
+For the binary classifier with the confusion matrix below:
+
+![](images/binary_confusion.png){fig-align="center" width="250"}
+
+The ***precision*** of this binary classifier is approximately:
+
+::: {#Q4 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q4:
+
+Delete the wrong answer(s) below:
+
+-   0.11
+-   0.85
+-   0.75 - C
+-   0.58
+-   0.77
+:::
+
+## Q-5
+
+In an ARIMA(p, d, q) model, the `q` represents which number?
+
+::: {#Q5 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q5:
+
+Keep the answer(s) you think the parameter `q` represents.
+
+-   The number of lagged observations included in the model
+-   The number of lagged forecast errors in the model - C
+-   The number of times the raw observations are differenced
+-   The number of seasonal periods in the data
+:::
+
+## Q-6
+
+In causal DAGs, what does a directed edge represent?
+
+::: {#Q6 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q6:
+
+Delete the wrong answer(s) below
+
+-   Correlation
+-   Causation - C
+-   Similarity
+-   Distance
+:::
+
+## Q-7
+
+How does the kNN algorithm typically perform on very large datasets?:
+
+::: {#Q7 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q7:
+
+Delete the wrong answer(s) below
+
+-   It becomes faster as it has more data points to search
+-   It becomes slower due to the increased computation of distances - C
+-   Its performance does not depend on the size of the dataset
+-   It automatically reduces the dimensionality of the data
+:::
+
+## Q-8
+
+![](images/dag.png){fig-align="center"}
+
+How many **open paths** are in the DAG above?
+
+::: {#Q8 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q8:
+
+Delete the wrong answer(s) below
+
+-   1
+-   2
+-   3
+-   4 - C
+-   5
+:::
+
+## Q-9
+
+What is the purpose of introducing a soft margin in a SVM?
+
+::: {#Q9 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q9:
+
+Delete the wrong answer(s) below
+
+-   To ensure that the SVM can only be used for linearly separable data
+-   To reduce the dimensionality of the feature space
+-   To allow for a certain degree of misclassification in the training data - C
+-   To increase the computational efficiency of the model
+:::
+
+## Q-10
+
+Which stochastic process is defined by the property that the probability of transitioning to any future state depends solely on the present state, not on the sequence of events that preceded it?
+
+::: {#Q10 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (1 point) Q10:
+
+Delete the wrong answer(s) below
+
+-   Random Walk
+-   Auto-regressive Process
+-   Markov Chain - C
+-   White Noise
+:::
+
+# Part 2
+
+## Q-11
+
+This question uses data for the closing prices of the five major Canadian banks from 2005-08-10 to 2023-09-29. The data was obtained using the following code (the difference in the time range is due to elimination of rows with NA values:
+
+``` r
+tidyquant::tq_get(
+  c("TD","BMO","BNS","RBC","CM")
+  , get = "stock.prices"
+  , from = "2000-01-01"
+  , to = "2023-10-01"
+)
+```
+
+The data can be found in your **data** directory
+
+```{r}
+#| label: read the bank price data
+#
+arima_data <- readr::read_csv('data/stock_data.csv', show_col_types = FALSE)
+```
+
+::: {#Q11 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q11:
+
+**(1)** Plot the data using functions in the timetk package (0.5 point)
+
+```{r}
+#| label: plot closing prices
+# A PLOT OF THE CLOSING PRICES FOR THE FIVE MAJOR CANADIAN BANKS
+
+arima_long <- arima_data %>% 
+  pivot_longer(cols = c(TD, BMO, BNS, RBC, CM),
+               names_to = "Bank",
+               values_to = "Closing_Price")
+arima_long
+
+timetk::plot_time_series(
+  .data = arima_long,
+  .date_var = date,
+  .value = Closing_Price,
+  .color_var = Bank,
+  .smooth = FALSE,
+  .interactive = TRUE,
+  .title = "Closing Prices of Five Major Canadian Banks"
+)
+```
+
+The goal is to build and evaluate an **arima** model to predict the stock price of CIBC (symbol 'CM'), using the workflow we developed in class.
+
+**(2)** Create test/trains splits of the data, where the **initial period is 10 years** and the **assessment period is 1 year**. Plot the test/train series for CIBC (symbol 'CM'). **(0.5 point)**
+
+```{r}
+#| label: create test and train splits of the time series
+#
+# DEFINITION AND A PLOT (CM) OF TEST & TRAINING SPLITS OF THE DATA
+
+cm_tbl <- arima_data %>%
+  select(date, CM)
+
+
+splits_cm <- 
+  timetk::time_series_split(
+    cm_tbl,
+    initial="10 years",
+    asses = "1 years"
+  )
+splits_cm
+
+cm_train <- training(splits_cm)
+cm_test <- testing(splits_cm)
+
+splits_cm %>% 
+  timetk::tk_time_series_cv_plan() |>
+  timetk::plot_time_series_cv_plan(
+    .date_var = date
+    , .value = CM
+    , .title = "Cross Validation Plan"
+  )
+
+```
+
+**(3)** Define a data preprocessing **recipe** and a **model** definition. The recipe is based on the formula `CM ~ .`, and make sure the data argument uses the training data. The model engine should be **auto_arima**.
+
+Finally, create a **workflow** object containing the recipe and the model spec, and then **fit** the model using the training data. **(1 point)**
+
+```{r}
+#| label: create a workflow with arecipe and an ARIMA model spec
+#
+# A RECIPE
+time_rec <- recipes::recipe(CM ~ ., data = cm_train)
+  
+  
+# A MODEL SPECIFICATION
+model_spec_arima <- modeltime::arima_reg() |>
+  parsnip::set_engine("auto_arima")
+  
+  
+# A FITTED WORKFLOW
+workflow_fit_arima <- workflows::workflow() %>%
+  workflows::add_model(model_spec_arima) %>%
+  workflows::add_recipe(time_rec) %>%
+  parsnip::fit(cm_train)
+```
+
+**(4)** Create a **models table** with your fitted model and a **calibration table** that uses the **testing** data. Generate a forecast with the **testing** data and the original **arima_data**. Plot the forecast. **(1 point)**
+
+```{r}
+#| label: create both a models table and a calibration table
+# A MODELS TABLE
+models_tbl <- modeltime::modeltime_table(
+  workflow_fit_arima
+)
+
+calibration_tbl <- models_tbl %>% 
+  modeltime::modeltime_calibrate(cm_test)
+
+# A CALIBRATION TABLE
+calibration_tbl %>%  modeltime::modeltime_accuracy()
+
+# PLOT OF THE FITTED MODEL FORECAST OF THE TRAINING DATA  
+
+calibration_tbl |>
+  modeltime::modeltime_forecast(
+    new_data = cm_test,
+    actual_data = arima_data
+  ) |>
+  modeltime::plot_modeltime_forecast()
+
+```
+
+**(5)** Compute the accuracy metrics for the forecast. What is the $R^2$ (rsq) metric. **(1 point)**
+
+```{r}
+#| label: compute accuracy metrics and report r-squared
+#
+# compute the metrics here (show your work)
+
+accuracy_tbl <- calibration_tbl %>% 
+  modeltime_accuracy() %>% 
+  select(rsq)
+
+```
+
+The rsq metric for the fit of the arima model to the testing data is: **S**
+:::
+
+## Q-12
+
+Execute the following code to create simulated observational data, where `D` is the treatment variable and `Y` is the response variable.
+
+```{r}
+#| echo: true
+#| message: false
+#| error: false
+set.seed(8740)
+
+n <- 800
+V <- rbinom(n, 1, 0.2)
+W <- 3*V + rnorm(n)
+D <- V + rnorm(n)
+Y <- D + W^2 + 1 + rnorm(n)
+Z <- D + Y + rnorm(n)
+data_obs <- tibble::tibble(V=V, W=W, D=D, Y=Y, Z=Z)
+```
+
+In the code below we fit several different outcome models. Compare the resulting coefficients for `D`. Which regressions appear to lead to unbiased estimates of the causal effect? **(1.5 points)**
+
+```{r}
+#| echo: true
+#| label: outcome models
+#
+# linear model of Y on X
+lin_YX <- lm(Y ~ D, data=data_obs)
+
+# linear model of Y on X and V
+lin_YV <- lm(Y ~ D + V, data=data_obs)
+
+# linear model Y on X and W
+lin_YW <- lm(Y ~ D + W, data=data_obs)
+
+```
+
+List all valid adjustment sets for the causal structure in this data (a good first step is to sketch the causal relations between variables - you don't need **ggdag::dagify - just look at the data spec**). **(1.5 points)**
+
+::: {#Q12 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q12:
+
+1.  Regressions that appear to lead to unbiased estimates of the causal effect are: lin_YV, lin_YW
+
+2.  Valid adjustment sets for the data used in this question are: {V}, {W}, {V,W}
+:::
+
+## Q-13
+
+For this question we'll use the [**Spam Classification Dataset**]{.underline} available from the UCI Machine Learning Repository. It features a collection of spam and non-spam emails represented as feature vectors, making it suitable for a logistic regression model. The data is in your `data/` directory and the metadata is in the `data/spambase/` directory.
+
+We'll use this data to create a model for detecting email spam using **logistic regression**.
+
+```{r}
+#| eval: false
+#| message: false
+#| label: read the spam data
+spam_data <- readr::read_csv('data/spam.csv', show_col_types = FALSE) |> 
+  tibble::as_tibble() |> 
+  dplyr::mutate(type = forcats::as_factor(type))
+
+head(spam_data)
+```
+
+::: {#Q13 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q13:
+
+**(1)** Split the data into test and training sets, and create a default recipe and a default model specification. Use the ***glmnet*** engine for the model, with **penalty** = 0.05 & **mixture** = 0.5. **(1 point)**
+
+```{r}
+#| label: split the data into test and train datasets, and create default recipe and glmnet model spec
+#| message: false
+#
+set.seed(8740)
+
+# create test/train splits
+splits <- spam_data %>% 
+  initial_split(spam_data, prop = 0.75, strata = type)
+
+train <- rsample::training(splits)
+test  <- rsample::testing(splits)
+
+default_recipe <- train %>% 
+  recipes::recipe(type ~ .)
+  
+default_model <- parsnip::logistic_reg(
+  penalty = 0.05,
+  mixture = 0.5
+) %>% 
+  parsnip::set_engine("glmnet") %>% 
+  parsnip::set_mode("classification")
+```
+
+**(2)** create a default workflow object with the recipe and the model specification, fit the workflow using `parsnip::fit` and the **training** data, and then generate the testing results by applying the fit to the **testing** data using `broom::augment` . **(1 point)**
+
+```{r}
+#| label: creat default workflow with recipe and model spec, then fit the model with training data and predict type with test data 
+#| message: false
+#
+default_workflow <- workflows::workflow() %>% 
+  workflows::add_recipe(default_recipe) %>% 
+  workflows::add_model(default_model)
+  
+lm_fit <- default_workflow %>% 
+  parsnip::fit(train)
+
+
+testing_results <- broom::augment(lm_fit,new_data = test)
+colnames(testing_results)
+
+
+```
+
+**(3)** Evaluate the testing results by plotting the **roc_auc curve**, and calculating the **accuracy**. **(1 point)**
+
+```{r}
+#| label: plot roc_auc from test fit results
+#| message: false
+#
+# ROC_AUC PLOT
+testing_results |> yardstick::roc_auc(truth = type, .pred_spam)
+
+testing_results %>%
+  yardstick::roc_curve(truth = type, .pred_spam) %>%
+  autoplot()
+
+```
+
+```{r}
+#| label: calculate accuracy from test fit results
+#| message: false
+#
+# CALCULATION OF ACCURACY
+testing_results %>%
+  yardstick::accuracy(truth = type, estimate = .pred_class)
+  
+```
+
+\(4\) Is there a way you could improve the accuracy of this **model? (1 point)**
+
+-   This model could be made more accurate by: using TUNE or Kmeans Clustering
+:::
+
+## Q-14
+
+::: {#Q14 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER Q14:
+
+1.  When preprocessing data for time series models, what is the function `timetk::step_fourier()` used for? **(1 point)**
+
+-   The `timetk::step_fourier()` function is used for: The `timetk::step_fourier()` function is used for **creating Fourier series terms** that model **seasonality** in time-series data.
+
+    It transforms a date or datetime column into pairs of sine and cosine terms that capture **cyclical seasonal patterns** (e.g., weekly, monthly, or yearly seasonality).
+
+    This helps models like regression or ARIMA learn repeating seasonal trends more effectively.
+
+2.  Give an example of its use in a recipe that is engineered for use with weekly data records. **(1 point)**
+
+-   An example of its use in a recipe that is engineered for use with weekly data records is: ❓
+
+```{r}
+#| label: an example the use of step_fourier in a recipe
+#
+# Example recipe using step_fourier for weekly seasonality
+weekly_rec <- recipe(sales ~ date, data = training_data) %>%
+  step_timeseries_signature(date) %>%     # add date-related features
+  step_fourier(date, K = 2, period = 52)  # 52 weeks = yearly seasonal cycle
+```
+:::
+
+## Q-15
+
+In a paper in the prestigious **Proceedings of the National Academy of Science** (PNAS) last year:
+
+::: callout-note
+**S. A. Rains, A. S. Richards**, *US state vaccine mandates did not influence COVID-19 vaccination rates but reduced uptake of COVID-19 boosters and flu vaccines compared to bans on vaccine restrictions*. **Proc. Natl. Acad. Sci.** U.S.A. 121(8), e2313610121 (2024).
+:::
+
+Rains & Richards performed a causal analysis and found that compared to states that banned COVID-19 vaccination requirements, states that imposed COVID-19 [vaccination mandates]{.underline} exhibit [lower adult and child uptake of flu vaccines and lower uptake of COVID-19 boosters]{.underline}. They included their data and their code (in R), as is best practice.
+
+In their analysis, the treatment was binary (vaccine mandate (1) or ban (0)). The proportion of people in a state that had been vaccinated was included to account for the general inclination toward COVID-19 vaccination in a state (mean centered). The outcome variable reflected the proportion of eligible people in a state who had received a booster or flu shot.
+
+However, in a letter to the PNAS on September 30, 2024 , the author of the letter, **Jack Fitzgerald,** argued that Rains & Richards had included a **bad control** in their analysis, a variable that biased their results.
+
+::: callout-note
+**Fitzgerald, J.** *US states that mandated COVID-19 vaccination see higher, not lower, take-up of COVID-19 boosters and flu vaccines*. **Proc. Natl. Acad. Sci.** U.S.A. 121(41), e2403758121 (2024).
+:::
+
+Here is Fitzgerald's DAG from his letter:
+
+![](images/pnas.2403758121fig01.jpg){fig-align="center" width="1000"}
+
+::: {#Q15 .callout-note appearance="simple" icon="false"}
+## YOUR ANSWER (2 points) Q15:
+
+Which variable did Fitzgerald think was the bad control, and why was it bad ?
+
+**Bad control:** COVID-19 Vaccination Rates
+
+Because it is a *collider* influenced by both the treatment (mandates) and unobserved common factors (like vaccine hesitancy).\
+
+Controlling for it opens a non-causal path between the treatment and outcome, creating bias.
+:::
+
+# Grading (25 pts)
+
+| **Part**                | **Points** |
+|:------------------------|:----------:|
+| **Part 1 - Conceptual** |     10     |
+| **Part 2 - Applied**    |     15     |
+| **Total**               |     25     |
