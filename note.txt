@@ -1,0 +1,13 @@
+https://bsmm-8740-fall-2025.github.io/osb/
+
+https://github.com/Nasir10634288/personal
+
+
+-   create your PAT using `
+	usethis::create_github_token()
+
+-   store your PAT with 
+	gitcreds::gitcreds_set()
+
+-   set your username and email with
+ 	usethis::use_git_config( user.name = "", user.email = "")
