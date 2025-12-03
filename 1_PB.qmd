@@ -1,0 +1,896 @@
+---
+title: "Lab 8 Exam Playbook"
+format: html
+editor: visual
+---
+
+# Lab 8 Exam Playbook
+
+------------------------------------------------------------------------
+
+# 1. G-Computation (Q1)
+
+## Typical Exam Questions
+
+-   "Use g-computation to estimate the ATE of D on Y."
+-   "Clone the dataset for D=1 and D=0 and predict potential outcomes."
+-   "Given an outcome model, compute counterfactual means and the ATE."
+
+(Q1)
+
+## When to use
+
+-   Estimate ATE using predicted potential outcomes.
+-   Clone data for `D=1` and `D=0`.
+
+## Workflow
+
+1.  Fit outcome model.
+2.  Clone dataset with D=1, D=0.
+3.  Predict outcomes.
+4.  Average predictions and compute ATE.
+
+## R Template
+
+``` r
+# ==== G-COMPUTATION TEMPLATE ====
+
+df <- my_data                       # CHANGE: dataset
+Y  <- "Y"                           # CHANGE: outcome variable
+D  <- "D"                           # CHANGE: treatment variable
+Xs <- c("X1","X2","X3")           # CHANGE: confounder names
+
+form_g <- as.formula(
+  paste(Y, "~", paste(c(D, Xs), collapse = " + "))
+)
+
+fit_g <- lm(form_g, data = df)
+
+df_stack <- dplyr::bind_rows(
+  df |> dplyr::mutate(!!D := 1),    # D=1 copy
+  df |> dplyr::mutate(!!D := 0)     # D=0 copy
+)
+
+pred_g <- broom::augment(fit_g, newdata = df_stack, type.predict = "response")
+
+ate_g <- pred_g |>
+  dplyr::group_by(!!rlang::sym(D)) |>
+  dplyr::summarise(mean_Y = mean(.fitted)) |>
+  dplyr::mutate(ATE = mean_Y - dplyr::lag(mean_Y))
+
+ate_g
+```
+
+------------------------------------------------------------------------
+
+# 2. Fixed Effects (Q2 / Q7)
+
+## Typical Exam Questions
+
+-   "Estimate within-unit effect using fixed effects (city/store FE)."
+-   "Explain what FE removes and interpret slopes & intercepts."
+-   "Run FE model with unit and/or time fixed effects."
+
+(Q2 / Q7)
+
+## When to use
+
+-   Remove unit-level unobserved confounders.
+-   Estimate within-unit effect.
+
+## Workflow
+
+1.  Add unit identifier.
+2.  Fit FE model.
+3.  Interpret slope as within-unit effect.
+
+## R Template
+
+``` r
+# ==== FIXED EFFECTS (LM) ====
+
+df <- panel_data                  # CHANGE
+y <- "Y"                         # CHANGE
+x <- "X"                         # CHANGE
+id <- "unit_id"                  # CHANGE
+
+form_fe <- as.formula(paste(y, "~", x, "+ factor(", id, ")"))
+fit_fe <- lm(form_fe, data = df)
+summary(fit_fe)
+```
+
+## Two-way FE (`fixest`)
+
+``` r
+fixest::feols(
+  as.formula(paste(y, "~", x, "|", id, "+ time")),
+  data = df
+)
+```
+
+------------------------------------------------------------------------
+
+# 3. Model Comparison (Q3 – model1, model2, model3)
+
+## Typical Exam Questions
+
+-   "Fit naive, confounder-adjusted, and interaction models. Compare AIC/BIC."
+-   "How does adding controls change the estimated effect of D?"
+-   "Which model is best? Justify using model fit statistics."
+
+(Q3 – model1, model2, model3)
+
+## Workflow
+
+1.  Build 3 formulas.
+2.  Fit models.
+3.  Extract effect + AIC/BIC.
+4.  Compare.
+
+## R Template
+
+``` r
+df <- my_data
+Y <- "Y"           # CHANGE
+D <- "D"           # CHANGE
+X <- c("X1","X2") # CHANGE
+X_int <- c("X1")   # CHANGE/optional
+
+form1 <- as.formula(paste(Y, "~", D))
+form2 <- as.formula(paste(Y, "~", D, "+", paste(X, collapse = " + ")))
+form3 <- as.formula(paste(Y, "~", D, "+", paste(X, collapse = " + "), "+ (", paste(X_int, collapse = " + "), ")^2"))
+
+m1 <- lm(form1, data=df)
+m2 <- lm(form2, data=df)
+m3 <- lm(form3, data=df)
+
+models <- list(m1=m1, m2=m2, m3=m3)
+
+purrr::map_dfr(models, ~{
+  broom::tidy(.x) |>
+    dplyr::filter(term == D) |>
+    dplyr::select(term, estimate) |>
+    dplyr::bind_cols(broom::glance(.x) |>
+      dplyr::select(r.squared, AIC, BIC))
+}, .id="model")
+```
+
+------------------------------------------------------------------------
+
+# 4. Doubly Robust Estimation (Q3(2))
+
+## Typical Exam Questions
+
+-   "Use a doubly robust estimator to compute ATE."
+-   "Fit propensity model + outcome models and combine."
+-   "Bootstrap the DR estimator and compute confidence intervals."
+
+(Q3(2))
+
+## Workflow
+
+1.  Propensity model.
+2.  Outcome models by treatment group.
+3.  Combine via DR formula.
+4.  Bootstrap if needed.
+
+## R Template
+
+``` r
+# ==== DOUBLY ROBUST ESTIMATOR ====
+
+doubly_robust <- function(df, Y, D, X){
+  form_ps <- as.formula(paste(D, "~", paste(X, collapse = " + ")))     # PS model
+  ps_mod  <- glm(form_ps, data=df, family=binomial)
+  p_hat   <- predict(ps_mod, type="response")
+
+  form_y <- as.formula(paste(Y, "~", paste(X, collapse=" + ")))        # outcome model
+  m1 <- lm(form_y, data=df[df[[D]]==1, ])
+  m0 <- lm(form_y, data=df[df[[D]]==0, ])
+
+  mu1 <- predict(m1, newdata=df)
+  mu0 <- predict(m0, newdata=df)
+
+  d <- df[[D]]
+  y <- df[[Y]]
+
+  term1 <- d*(y-mu1)/p_hat + mu1
+  term0 <- (1-d)*(y-mu0)/(1-p_hat) + mu0
+
+  mean(term1 - term0)
+}
+```
+
+------------------------------------------------------------------------
+
+# 5. Regression ATE + Individual Treatment Effects Targeting (Q4)
+
+## Typical Exam Questions
+
+-   "Use regression adjustment to estimate ATE."
+-   "Predict individual treatment effects for new customers."
+-   "Compute lift, cumulative lift, and optimal targeting strategy."
+
+(Q4)
+
+## Workflow
+
+1.  Fit regression model.
+2.  Predict Y(1), Y(0).
+3.  Compute lift.
+4.  Sort and accumulate.
+
+## R Template
+
+``` r
+df <- test_data
+Y <- "Y"                     # CHANGE
+D <- "D"                     # CHANGE
+X <- c("X1","X2","X3")     # CHANGE
+cost <- 0.1                  # CHANGE
+
+form_reg <- as.formula(paste(Y, "~", D, "*", X[1], "+", paste(X[-1], collapse=" + ")))
+ols <- lm(form_reg, data=df)
+ate_reg <- broom::tidy(ols) |> dplyr::filter(term==D) |> pull(estimate)
+
+newdat <- new_customer_data          # CHANGE
+
+dat1 <- newdat |> dplyr::mutate(!!D := 1)
+dat0 <- newdat |> dplyr::mutate(!!D := 0)
+
+r1 <- predict(ols, newdata=dat1)
+r0 <- predict(ols, newdata=dat0)
+
+lift_tbl <- newdat |>
+  dplyr::mutate(r1=r1, r0=r0, lift=r1-r0-cost, base=ate_reg-cost) |>
+  dplyr::arrange(desc(lift)) |>
+  dplyr::mutate(cum_lift=cumsum(lift), cum_base=cumsum(base))
+```
+
+------------------------------------------------------------------------
+
+# 6. Matching Estimator (Q5)
+
+## Typical Exam Questions
+
+-   "Estimate ATT using nearest-neighbour matching."
+-   "Normalize covariates and match treated vs controls."
+-   "Compute bias-corrected matching ATE."
+
+(Q5)
+
+## Workflow
+
+1.  Select covariates.
+2.  Normalize.
+3.  Run nearest neighbour matching.
+4.  Estimate ATT.
+
+## R Template
+
+``` r
+# ==== MATCHING TEMPLATE ====
+
+df <- my_data
+Y <- "Y"                             # CHANGE
+D <- "D"                             # CHANGE
+X <- c("X1","X2","X3")            # CHANGE
+
+df_scaled <- df |> dplyr::mutate(dplyr::across(all_of(X), ~ as.numeric(scale(.x))))
+
+form_m <- as.formula(paste(D, "~", paste(X, collapse=" + ")))
+
+m_out <- MatchIt::matchit(form_m, data=df_scaled, method="nearest", distance="logit")
+matched_df <- MatchIt::match.data(m_out)
+
+att_match <- lm(as.formula(paste(Y, "~", D)), data=matched_df)
+summary(att_match)
+```
+
+------------------------------------------------------------------------
+
+# 7. Staggered DiD (did2s) – Q7
+
+## Typical Exam Questions
+
+-   "Use did2s to estimate ATT in staggered panel adoption."
+-   "Include store and time fixed effects."
+-   "Interpret the ATT from the second-stage regression."
+
+(did2s) – Q7
+
+## Workflow
+
+1.  Use DiD2S to handle staggered adoption.
+2.  Include unit and time FE.
+3.  ATT is coefficient on treatment residual.
+
+## R Template
+
+``` r
+# ==== DID2S TEMPLATE ====
+
+df <- panel_data                     # CHANGE
+Y <- "Y"                            # CHANGE
+D <- "treated"                      # CHANGE
+ID <- "unit_id"                     # CHANGE
+Tt <- "period"                      # CHANGE
+
+res_did2s <- did2s::did2s(
+  data=df,
+  yname=Y,
+  treatment=D,
+  first_stage = ~ 0 | !!as.symbol(ID) + !!as.symbol(Tt),
+  second_stage = ~ !!as.symbol(D),
+  cluster_var = ID
+)
+fixest::etable(res_did2s)
+```
+
+------------------------------------------------------------------------
+
+# 8. Classic DiD (Q8)
+
+## Typical Exam Questions
+
+-   "Construct variables treated, post, and treated×post."
+-   "Run DiD regressions using two specs and compare."
+-   "Plot treated vs control trends and assess parallel trends."
+
+(Q8)
+
+## Workflow
+
+1.  Create post, treated, did.
+2.  Run two regressions.
+3.  Compare estimates.
+4.  Plot trends.
+
+## R Template
+
+``` r
+# ==== CLASSIC DID TEMPLATE ====
+
+df <- panel_data                                 # CHANGE
+Y <- "Y"
+year_var <- "year"                               # CHANGE
+unit <- "country"                                # CHANGE
+cut_year <- 1994                                  # CHANGE
+treated_units <- c("E","F","G")                # CHANGE
+
+df <- df |> dplyr::mutate(
+  post = as.numeric(.data[[year_var]] >= cut_year),
+  treated = as.numeric(.data[[unit]] %in% treated_units),
+  did = post * treated
+)
+
+fit1 <- lm(as.formula(paste(Y, "~ treated + post + did")), data=df)
+fit2 <- lm(as.formula(paste(Y, "~ treated * post")), data=df)
+
+summary(fit1)
+summary(fit2)
+```
+
+------------------------------------------------------------------------
+
+# 
+
+---
+title: "Lab 7 Exam Playbook"
+format: html
+editor: source
+---
+
+# Lab 7 Exam Playbook
+
+Below each method, **Typical Exam Questions** have now been added for clarity.\
+This QMD contains **all method explanations, workflows, and R templates** with `# CHANGE:` markers so you can quickly modify during the exam.
+
+------------------------------------------------------------------------
+
+# 1. Standardized Mean Differences (SMD) & Covariate Balance
+
+(Exercise 5)
+
+## Typical Exam Questions
+
+-   “Calculate SMDs before and after randomization / weighting.”
+-   “Show whether treatment and control groups are balanced.”
+-   “Create a love plot comparing SMDs.”
+-   “Interpret an SMD table or plot.”
+
+(Q5)
+
+## When to use
+
+-   When checking covariate balance between treatment groups.
+-   Before/after randomization or before/after weighting.
+-   IPW diagnostic step.
+
+## Workflow
+
+1.  Select confounder variables.\
+2.  Compute SMD using `tidy_smd()`.\
+3.  For randomization: split sample 50/50.\
+4.  Label samples (0 = control, 1 = treatment).\
+5.  Bind rows.\
+6.  Recalculate SMD using new grouping variable.\
+7.  Plot love plot.
+
+## R Template
+
+``` r
+library(dplyr)
+library(tidysmd)
+library(ggplot2)
+
+df <- my_data                        # CHANGE: dataset
+group_var <- "treatment"            # CHANGE: treatment group variable
+confounders <- c("x1", "x2", "x3")  # CHANGE: confounder list
+
+smd_unadj <- tidy_smd(
+  df,
+  all_of(confounders),
+  .group = !!sym(group_var)
+)
+smd_unadj
+
+df0 <- df %>% slice_sample(prop = 0.5) %>% mutate(smpl = 0)
+df1 <- df %>% filter(!rowid %in% df0$rowid) %>% mutate(smpl = 1)
+df_split <- bind_rows(df0, df1)
+
+smd_rand <- tidy_smd(df_split, all_of(confounders), .group = smpl)
+smd_rand
+
+ggplot(smd_rand, aes(x = abs(smd), y = variable)) +
+  tidysmd::geom_love() +
+  labs(title = "Love Plot", x = "|SMD|")
+```
+
+------------------------------------------------------------------------
+
+# 2. Propensity Scores (PS)
+
+(Exercise 7 — Step 1)
+
+## Typical Exam Questions
+
+-   “Fit a propensity score model using logistic regression.”
+-   “Predict propensity scores.”
+-   “Explain why we model the treatment, not outcome.”
+-   “Extract fitted probabilities for IPW.”
+
+(Q7 Step 1)
+
+## Workflow
+
+1.  Fit logistic regression with **treatment \~ confounders**.\
+2.  Extract predicted probabilities (`pscore`).\
+3.  Check distributions.
+
+## R Template
+
+``` r
+df <- my_data                         # CHANGE: dataset
+treat <- "D"                          # CHANGE: treatment variable
+conf <- c("x1", "x2", "x3")           # CHANGE: confounders
+
+form_ps <- as.formula(
+  paste(treat, "~", paste(conf, collapse = " + "))
+)
+
+ps_model <- glm(form_ps, family = binomial(), data = df)
+df$pscore <- predict(ps_model, type = "response")
+```
+
+------------------------------------------------------------------------
+
+# 3. Inverse Probability Weights (IPW)
+
+(Exercise 7 — Step 2)
+
+## Typical Exam Questions
+
+-   “Compute IPWs for ATE / ATT.”
+-   “Why do we use IPWs?”
+-   “Diagnose extreme or unstable weights.”
+-   “Plot weight distribution.”
+
+(Q7 Step 2)
+
+## Workflow
+
+1.  Use `pscore`.\
+2.  Compute ATE weights:
+    -   Treated: `1/p`
+    -   Control: `1/(1-p)`\
+3.  Attach weights.\
+4.  Plot distribution.
+
+## R Template
+
+``` r
+df <- df
+treat <- "D"
+
+df <- df %>%
+  mutate(
+    w_ate = if_else(!!sym(treat) == 1,
+                    1 / pscore,
+                    1 / (1 - pscore))
+  )
+```
+
+------------------------------------------------------------------------
+
+# 4. Weighted Outcome Model (IPW Regression)
+
+(Exercise 7 — Step 3)
+
+## R Template
+
+``` r
+Y <- "Y"                   
+D <- "D"                   
+
+form_ipw <- as.formula(paste(Y, "~", D))
+
+ipw_model <- lm(
+  form_ipw,
+  data = df,
+  weights = w_ate
+)
+
+broom::tidy(ipw_model, conf.int = TRUE)
+```
+
+------------------------------------------------------------------------
+
+# 5. Weighted Regression with Robust SE
+
+(Exercise 7 — Step 4)
+
+## R Template
+
+``` r
+library(estimatr)
+
+robust_model <- lm_robust(
+  form_ipw,
+  data = df,
+  weights = w_ate
+)
+
+broom::tidy(robust_model, conf.int = TRUE)
+```
+
+------------------------------------------------------------------------
+
+# 6. Bootstrap Weighted Regression
+
+(Exercise 7 — Full Bootstrap)
+
+## R Template
+
+``` r
+library(rsample)
+library(purrr)
+library(broom)
+
+fit_ipw <- function(split, ...) {
+  dfb <- rsample::analysis(split)
+
+  ps_mod <- glm(D ~ x1 + x2 + x3, data = dfb, family = binomial())  
+  dfb$pscore <- predict(ps_mod, type = "response")
+
+  dfb$w_ate <- ifelse(dfb$D == 1, 1/dfb$pscore, 1/(1-dfb$pscore))
+
+  out <- lm(Y ~ D, data = dfb, weights = w_ate)                     
+  tidy(out)
+}
+
+boot_obj <- bootstraps(df, 1000)
+boot_res <- boot_obj %>% mutate(results = map(splits, fit_ipw))
+
+boot_ci <- rsample::int_t(boot_res, results) %>% filter(term == "D")
+boot_ci
+```
+
+------------------------------------------------------------------------
+
+# 7. FWL Theorem
+
+(Exercise 6)
+
+## R Template
+
+``` r
+debias <- lm(D ~ x1 + x2 + x3, data = df)    
+df$D_res <- debias$residuals
+
+denoise <- lm(Y ~ x1 + x2 + x3, data = df)  
+df$Y_res <- denoise$residuals
+
+fw_model <- lm(Y_res ~ D_res, data = df)
+broom::tidy(fw_model, conf.int = TRUE)
+```
+
+------------------------------------------------------------------------
+
+# 8. Instrumental Variables (IV — Wald Estimator)
+
+(Exercise 9)
+
+## R Template
+
+``` r
+rf <- lm(Y ~ Z, data = df)
+fs <- lm(D ~ Z, data = df)
+
+rho <- coef(rf)[2]
+pi  <- coef(fs)[2]
+
+beta_iv <- rho / pi
+beta_iv
+```
+
+------------------------------------------------------------------------
+
+# 9. IV Elasticity (Exercise 10)
+
+## R Template
+
+``` r
+ols_mod <- lm(log(Q) ~ log(P), data = df)
+tidy(ols_mod)
+
+rf <- lm(log(Q) ~ Z, data = df)
+rho <- coef(rf)[2]
+
+fs <- lm(log(P) ~ Z, data = df)
+pi <- coef(fs)[2]
+
+elasticity_iv <- rho / pi
+elasticity_iv
+```
+
+---
+--- title: "Lab 9 Exam Playbook" format: html editor: source ---
+---
+
+# **Lab 9 Exam Playbook**
+
+## TOPIC 1 – Markov Chains: Probability After *k* Steps
+
+### Typical Exam Question Types
+
+-   Compute probability the system is in a given state after k steps.
+-   Compute probability the system is in a set of states (e.g., non-churn) after k steps.
+-   Find the distribution over all states after k steps given an initial distribution.
+-   Apply a Markov chain to a business context (customers, machines, loans, etc.).
+
+### Workflow
+
+1.  Define transition matrix `P`.
+2.  Choose number of steps `k`.
+3.  Compute `P^k`.
+4.  Define initial distribution.
+5.  Multiply: `dist_k <- start %*% Pk`.
+6.  Extract or sum needed probabilities.
+
+### R Template
+
+``` r
+# 1. Transition matrix
+P <- matrix(
+  c(
+    p11, p12, p13, p14,   # <-- CHANGE
+    p21, p22, p23, p24,   # <-- CHANGE
+    p31, p32, p33, p34,   # <-- CHANGE
+    p41, p42, p43, p44    # <-- CHANGE
+  ),
+  nrow = 4, byrow = TRUE    # <-- CHANGE number of states
+)
+
+# 2. Steps
+k <- 6                       # <-- CHANGE
+
+# 3. Compute P^k
+Pk <- expm::`%^%`(P, k)
+
+# 4. Initial distribution
+start <- matrix(c(1, 0, 0, 0), nrow = 1)   # <-- CHANGE
+
+# 5. Distribution after k
+dist_k <- start %*% Pk
+
+# 6. Extract probabilities
+prob_state4 <- dist_k[1, 4]                # <-- CHANGE
+prob_non_churn <- sum(dist_k[1, 1:3])      # <-- CHANGE
+```
+
+------------------------------------------------------------------------
+
+## TOPIC 2 – Stationary Distribution / Steady State
+
+### Typical Exam Question Types
+
+-   Find the stationary distribution π of a Markov chain.
+-   Compute long-run proportion of time spent in each state.
+-   Verify that πP = π and that the elements of π sum to 1.
+-   Interpret π in a business or applied context (e.g., long-run market shares).
+
+### Workflow
+
+1.  Define `P`.
+2.  Set up `A` and `b`.
+3.  Solve using `qr.solve()`.
+4.  Check results.
+
+### R Template
+
+``` r
+# 1. Transition matrix
+P <- matrix(
+  c(
+    p11, p12,   # <-- CHANGE
+    p21, p22    # <-- CHANGE
+  ),
+  nrow = 2, byrow = TRUE    # <-- CHANGE number of states
+)
+
+# 2. Build A
+n <- nrow(P)
+I <- diag(n)
+A <- rbind(t(I - P), rep(1, n))
+
+# 3. Build b
+b <- c(rep(0, n), 1)
+
+# 4. Solve for pi
+pi <- qr.solve(A, b)
+
+# 5. Checks
+pi %*% P
+sum(pi)
+```
+
+------------------------------------------------------------------------
+
+## TOPIC 3 – Metropolis–Hastings Sampler (Discrete ±1 Proposal)
+
+### Typical Exam Question Types
+
+-   Implement an MH algorithm to sample from a given target distribution.
+-   Use a random-walk proposal (e.g., x ± 1) for a discrete distribution.
+-   Derive or apply the acceptance probability formula.
+-   Compare empirical summaries (mean, variance, quantiles) from MH samples to theoretical values.
+
+### Workflow
+
+1.  Define target distribution.
+2.  Choose proposal.
+3.  Initialize chain.
+4.  Loop: propose → accept/reject.
+5.  Output samples.
+6.  Compare quantiles.
+
+### R Template
+
+``` r
+# 1. Target distribution
+lambda <- 20                                  # <-- CHANGE
+target_pmf <- function(x) dpois(x, lambda)     # <-- CHANGE formula if needed
+
+# 2. Settings
+n <- 2000                                      # <-- CHANGE
+x <- 1                                         # <-- CHANGE
+samples <- numeric(n)
+samples[1] <- x
+
+# 3. MH Loop
+for (t in 2:n) {
+  if (x > 0) {
+    if (runif(1) < 0.5) y <- x + 1 else y <- x - 1
+  } else {
+    y <- x + 1
+  }
+
+  a <- min(1, target_pmf(y) / target_pmf(x))   # <-- CHANGE if asymmetric proposal
+
+  if (runif(1) < a) x <- y
+
+  samples[t] <- x
+}
+
+# 4. Compare quantiles
+probs <- c(0.1, 0.25, 0.5, 0.75, 0.9)          # <-- CHANGE
+sample_q <- quantile(samples, probs)
+theory_q <- qpois(probs, lambda)               # <-- CHANGE
+cbind(probs, sample_q, theory_q)
+```
+
+------------------------------------------------------------------------
+
+## TOPIC 4 – Business Markov Chains (Loan Portfolio)
+
+### Typical Exam Question Types
+
+-   Predict the composition of a portfolio after k years.
+-   Compute the probability that a loan starting in a given state (Good/Risky/etc.) is in another state (Paid/Bad/etc.) after k years.
+-   Work with absorbing states (Paid or Bad) and long-term payoff/default probabilities.
+-   Interpret probabilities in terms of risk, profitability, or policy decisions.
+
+### Workflow
+
+1.  Define matrix P.
+2.  For portfolio composition: multiply initial vector by `P^k`.
+3.  For individual loan outcome: use unit vector.
+4.  Extract target state probability.
+
+### R Template
+
+``` r
+# 1. Transition matrix
+P <- matrix(
+  c(
+    0.70, 0.05, 0.03, 0.22,   # Good row    <-- CHANGE
+    0.05, 0.55, 0.35, 0.05,   # Risky row   <-- CHANGE
+    0.00, 0.00, 1.00, 0.00,   # Bad row     <-- CHANGE
+    0.00, 0.00, 0.00, 1.00    # Paid row    <-- CHANGE
+  ),
+  nrow = 4, byrow = TRUE
+)
+
+# (A) Portfolio after k years
+k <- 2                                     # <-- CHANGE
+P_k <- expm::`%^%`(P, k)
+pi0 <- matrix(c(0.6, 0.4, 0, 0), nrow = 1) # <-- CHANGE
+pi_k <- pi0 %*% P_k
+
+# (B) Probability Good -> Paid in k years
+k <- 20                                    # <-- CHANGE
+P_k <- expm::`%^%`(P, k)
+start_good <- matrix(c(1, 0, 0, 0), nrow = 1)  # <-- CHANGE
+dist_good_k <- start_good %*% P_k
+prob_good_to_paid <- dist_good_k[1, 4]          # <-- CHANGE target state
+prob_good_to_paid * 100
+```
+
+------------------------------------------------------------------------
+
+## TOPIC 5 – Covariance (Classical vs All-Differences)
+
+### Typical Exam Question Types
+
+-   Compute covariance between two variables using the standard formula.
+-   Compute covariance using an all-differences/double-sum formula.
+-   Compare results from the two methods for different sample sizes.
+-   Discuss why differences shrink as sample size grows (law of large numbers, consistency).
+
+### Workflow
+
+1.  Generate or receive vectors a, b.
+2.  Compute classical covariance.
+3.  Compute alternative covariance.
+4.  Compare.
+
+### R Template
+
+\`\`\`r \# 1. Sample size T \<- 100 \# \<-- CHANGE
+
+# 2. Generate data (or use given)
+
+a \<- rnorm(T, 1, 1) \# \<-- CHANGE epsilon \<- rnorm(T, 4, 2) \# \<-- CHANGE b \<- a + epsilon \# \<-- CHANGE
+
+# 3. Classical covariance
+
+cov_classic \<- mean((a - mean(a)) \* (b - mean(b)))
+
+# 4. All-differences covariance
+
+alt_cov \<- 1:(T-1) \|\> purrr::map_dbl( (k) sum((dplyr::lead(a, k) - a) \* (dplyr::lead(b, k) - b), na.rm = TRUE) ) \|\> sum(na.rm = TRUE) / (T \* T)
+
+# 5. Compare
+
+cov_classic alt_cov

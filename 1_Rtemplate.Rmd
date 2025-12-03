@@ -1,0 +1,1307 @@
+===================== Lab 8 ================================================================================================
+============================================================================================================================
+
+
+🧮 Method 1 – G-Computation (like Q1)
+1. Typical exam questions
+
+“Use g-computation to estimate the ATE of treatment D on outcome Y.”
+
+“Clone the data for D=1 and D=0, fit an outcome model, predict potential outcomes, and compute the causal effect.”
+
+“Given a regression model for Y, use g-formula to estimate the effect of setting D=1 vs D=0.”
+
+2. Workflow (concept)
+
+Choose outcome, treatment, and confounders.
+
+Fit a flexible outcome model Y ~ D + X + interactions.
+
+Make 2 copies of data: one with D=1, one with D=0; stack them.
+
+Use the model to predict Ŷ for each stacked row.
+
+Average predictions within D=1 and D=0, subtract to get ATE.
+
+3. R template
+# ==== G-COMPUTATION TEMPLATE ====
+
+df <- my_data                       # CHANGE: put exam dataset here
+
+Y  <- "Y"                           # CHANGE: outcome variable name
+D  <- "D"                           # CHANGE: treatment variable name
+Xs <- c("X1","X2","X3")             # CHANGE: list of confounder names
+
+# 1. Fit outcome model on ORIGINAL data
+form_g <- as.formula(               # OK: building formula
+  paste(Y, "~",                     # OK: left side is outcome
+        paste(c(D, Xs), collapse = " + "), 
+        "+",                        # CHANGE: add interactions if needed, e.g. (D + X1)^2
+        "0")                        # CHANGE/OPTIONAL: remove if you want an intercept
+)
+fit_g <- lm(form_g, data = df)      # OK: linear model for outcome
+
+# 2. Build stacked dataset with D=1 and D=0
+df_stack <- dplyr::bind_rows(       # OK: bind two copies of data
+  df |> dplyr::mutate(!!D := 1),    # OK: make copy where D is set to 1
+  df |> dplyr::mutate(!!D := 0)     # OK: make copy where D is set to 0
+)
+
+# 3. Predict outcomes under each D
+pred_g <- broom::augment(           # OK: add predictions
+  fit_g, 
+  newdata = df_stack, 
+  type.predict = "response"         # OK: predicted mean on outcome scale
+)
+
+# 4. Average predicted outcomes by D and compute contrast
+ate_g <- pred_g |>
+  dplyr::group_by(!!rlang::sym(D)) |>
+  dplyr::summarise(mean_Y = mean(.fitted)) |>
+  dplyr::mutate(ATE = mean_Y - dplyr::lag(mean_Y))  # OK: difference D=1 minus D=0
+
+ate_g                                  # OK: print table with ATE
+
+
+
+
+
+🧱 Method 2 – Fixed Effects / Within-Unit (like Q2 & part of Q7)
+1. Typical exam questions
+
+“Explain and estimate the effect of X on Y using city fixed effects.”
+
+“Use a fixed-effect model with store and time effects to estimate the effect of treatment D on productivity.”
+
+“Interpret slopes and intercepts of fixed-effect lines.”
+
+2. Workflow
+
+Panel/id variable (e.g. store_id or city) and outcome Y.
+
+Add treatment or covariate X that varies within unit.
+
+Fit fixed effect model (e.g. Y ~ X + factor(id) or with fixest::feols).
+
+Interpret:
+
+intercepts differ by id → baseline differences
+
+slope on X → within-unit effect.
+
+3. R template (simple FE with base lm)
+# ==== SIMPLE FIXED EFFECTS TEMPLATE (LM) ====
+
+df <- panel_data                      # CHANGE: exam dataset
+Y  <- "Y"                             # CHANGE: outcome
+X  <- "X"                             # CHANGE: key covariate / treatment
+ID <- "unit_id"                       # CHANGE: panel id variable (city, store, person)
+
+# 1. Fit FE model via dummy factors
+form_fe <- as.formula(                # OK
+  paste(Y, "~", X, "+ factor(", ID, ")")
+)
+
+fit_fe <- lm(form_fe, data = df)      # OK: FE via factor dummies
+
+summary(fit_fe)                       # OK: coefficient on X is within-unit effect
+
+3b. R template (two-way FE with fixest – DiD style)
+# ==== TWO-WAY FIXED EFFECTS (DiD style) ====
+
+df <- panel_data                       # CHANGE: exam dataset
+Y  <- "Y"                              # CHANGE: outcome
+D  <- "treated"                        # CHANGE: treatment (0/1)
+ID <- "unit_id"                        # CHANGE: store/city/person id
+Tt <- "time"                           # CHANGE: time variable (month/year)
+
+fixest::feols(                         # OK: fixed-effect regression
+  as.formula(paste(Y, "~", D, "|", ID, "+", Tt)),
+  data = df
+)
+# Coefficient on D = within-unit, time-demeaned treatment effect
+
+
+
+
+🎯 Method 3 – Model Comparison / Confounder Selection (like Q3 model1–3)
+1. Typical exam questions
+
+“Fit 3 models: (i) naive Y ~ D, (ii) with confounders, (iii) with interactions; compare AIC/BIC and choose best.”
+
+“Show how adding confounders changes the estimated effect of D.”
+
+2. Workflow
+
+Define Y, D, and vector of confounders X.
+
+Build formulas:
+
+form1: Y ~ D
+
+form2: Y ~ D + X
+
+form3: Y ~ D + X + interactions
+
+Fit lm for each.
+
+Extract coefficient on D and AIC/BIC; choose best.
+
+3. R template
+# ==== MODEL COMPARISON TEMPLATE ====
+
+df <- my_data                                  # CHANGE: dataset
+Y  <- "Y"                                      # CHANGE: outcome
+D  <- "D"                                      # CHANGE: treatment
+X  <- c("X1","X2","X3")                        # CHANGE: confounders
+X_int <- c("X1","X4")                          # CHANGE: which variables interact (optional)
+
+# 1. Build formulas
+form1 <- as.formula(paste(Y, "~", D))          # OK: naive
+form2 <- as.formula(paste(Y, "~", D, "+",
+                          paste(X, collapse=" + ")))  # OK: add confounders
+
+form3 <- as.formula(paste(
+  Y, "~", D, "+",
+  paste(X, collapse=" + "), "+",
+  "(", paste(X_int, collapse=" + "), ")^2"     # CHANGE/OPTIONAL: interaction structure
+))
+
+# 2. Fit models
+m1 <- lm(form1, data = df)                     # OK
+m2 <- lm(form2, data = df)                     # OK
+m3 <- lm(form3, data = df)                     # OK
+
+# 3. Summarise D effect and model fit
+models <- list(m1 = m1, m2 = m2, m3 = m3)      # OK
+
+purrr::map_dfr(models, ~{
+  broom::tidy(.x) |>
+    dplyr::filter(term == D) |>
+    dplyr::select(term, estimate, std.error, p.value) |>
+    dplyr::bind_cols(
+      broom::glance(.x) |>
+        dplyr::select(r.squared, adj.r.squared, AIC, BIC)
+    )
+}, .id = "model")                              # OK: compare models
+
+
+
+
+🧪 Method 4 – Doubly Robust Estimation (like Q3(2))
+1. Typical exam questions
+
+“Use a doubly robust estimator to estimate ATE of D on Y, given covariates X.”
+
+“Combine a propensity score model and outcome models, and compute DR ATE.”
+
+“Bootstrap the DR estimate to get a confidence interval.”
+
+2. Workflow
+
+Estimate propensity scores p_hat = P(D=1 | X).
+
+Estimate outcome models for treated and controls: m1(X), m0(X).
+
+Use DR formula to compute ATE.
+
+Optionally, bootstrap.
+
+3. R template (simplified)
+# ==== DOUBLY ROBUST ESTIMATOR TEMPLATE ====
+
+df <- my_data                         # CHANGE: dataset
+Y  <- "Y"                             # CHANGE: outcome
+D  <- "D"                             # CHANGE: treatment
+X  <- c("X1","X2","X3")               # CHANGE: covariates
+
+doubly_robust <- function(df, Y, D, X){   # OK: DR function
+  # 1. Propensity model
+  form_ps <- as.formula(
+    paste(D, "~", paste(X, collapse = " + "))
+  )
+  ps_mod <- glm(form_ps, data = df, family = binomial)   # OK: logit
+  p_hat  <- predict(ps_mod, type = "response")           # OK: P(D=1|X)
+  
+  # 2. Outcome model formula (same X for both groups)
+  form_y <- as.formula(
+    paste(Y, "~", paste(X, collapse = " + "))
+  )
+  
+  # Fit separate outcome models by treatment
+  m1_mod <- lm(form_y, data = df[df[[D]] == 1, , drop = FALSE])  # OK: Y|D=1,X
+  m0_mod <- lm(form_y, data = df[df[[D]] == 0, , drop = FALSE])  # OK: Y|D=0,X
+  
+  # Predict Y(1) and Y(0) for everyone
+  X_df <- df[, X, drop = FALSE]                                  # OK
+  mu1  <- predict(m1_mod, newdata = X_df)                        # OK
+  mu0  <- predict(m0_mod, newdata = X_df)                        # OK
+  
+  # 3. DR formula
+  d <- as.numeric(df[[D]])                                      # OK
+  y <- df[[Y]]                                                  # OK
+  
+  term1 <- d    * (y - mu1) / p_hat  + mu1                      # OK
+  term0 <- (1-d) * (y - mu0) / (1 - p_hat) + mu0                # OK
+  
+  mean(term1 - term0)                                           # OK: ATE
+}
+
+ate_dr <- doubly_robust(df, Y, D, X)   # OK: call function
+ate_dr
+
+
+
+
+💸 Method 5 – Regression ATE + Individual Targeting / Lift (like Q4)
+1. Typical exam questions
+
+“Estimate ATE using regression and propose a targeting strategy by predicting individual treatment effects.”
+
+“Given new customers X_new, compute predicted Y(1) and Y(0), define lift and cumulative lift.”
+
+2. Workflow
+
+Fit regression Y ~ D * X1 + X2 + ....
+
+Extract ATE from coefficient on D (or average marginal effect).
+
+For new data:
+
+create two copies: set D=1 and D=0
+
+predict r1, r0
+
+lift = r1 − r0 − cost
+
+sort, cumulative sums, choose cutoff.
+
+3. R template
+# ==== REGRESSION + ITE / LIFT TEMPLATE ====
+
+df <- test_data                        # CHANGE: trial dataset
+Y  <- "Y"                              # CHANGE: outcome
+D  <- "D"                              # CHANGE: treatment
+X  <- c("X1","X2","X3")                # CHANGE: predictors
+cost <- 0.1                            # CHANGE: per-unit cost on Y-scale
+
+# 1. Fit regression with interaction (optional)
+form_reg <- as.formula(
+  paste(Y, "~", D, "*", X[1], "+", paste(X[-1], collapse = " + "))
+)
+ols <- lm(form_reg, data = df)
+
+# 2. Extract ATE (if appropriate)
+ate_reg <- broom::tidy(ols) |>
+  dplyr::filter(term == D) |>
+  dplyr::pull(estimate)
+
+# 3. New customer data without Y or D
+newdat <- new_customer_data            # CHANGE: exam new-data frame with same X columns
+
+# 4. Predict Y(1) and Y(0) for each new customer
+dat1 <- newdat |> dplyr::mutate(!!D := 1)  # OK
+dat0 <- newdat |> dplyr::mutate(!!D := 0)  # OK
+
+r1 <- predict(ols, newdata = dat1)         # OK: Y if treated
+r0 <- predict(ols, newdata = dat0)         # OK: Y if not treated
+
+# 5. Build lift table
+lift_tbl <- newdat |>
+  dplyr::mutate(
+    r1 = r1,
+    r0 = r0,
+    lift = r1 - r0 - cost,                 # OK: net gain per person
+    base = ate_reg - cost                  # OK: baseline effect per person
+  ) |>
+  dplyr::arrange(dplyr::desc(lift)) |>
+  dplyr::mutate(
+    cum_lift  = cumsum(lift),              # OK
+    cum_base  = cumsum(base),              # OK
+    frac_treated = dplyr::row_number() / dplyr::n()   # OK: % treated
+  )
+
+lift_tbl                                   # OK: use to find optimal cutoff
+
+
+
+
+🚬 Method 6 – Matching (like Q5)
+1. Typical exam questions
+
+“Estimate the causal effect of D on Y using matching.”
+
+“Use nearest-neighbour matching on covariates X and then estimate ATT.”
+
+“Explain why you normalize covariates before matching.”
+
+2. Workflow (simpler than lab’s knn code)
+
+Choose D, Y, X.
+
+(Optional) normalize numeric X.
+
+Use MatchIt with method "nearest".
+
+Extract matched data.
+
+Run lm(Y ~ D, data=matched) to get ATT.
+
+3. R template
+# ==== MATCHING TEMPLATE (MatchIt) ====
+
+df <- my_data                           # CHANGE: dataset
+Y  <- "Y"                               # CHANGE: outcome
+D  <- "D"                               # CHANGE: treatment
+X  <- c("X1","X2","X3")                 # CHANGE: covariates
+
+# 1. (Optional) scale numeric covariates before matching
+df_scaled <- df |>
+  dplyr::mutate(
+    dplyr::across(
+      .cols = dplyr::all_of(X), 
+      .fns  = ~ as.numeric(scale(.x))    # OK: zero mean, unit var
+    )
+  )
+
+# 2. Set up formula for matching
+form_m <- as.formula(
+  paste(D, "~", paste(X, collapse = " + "))
+)
+
+# 3. Run nearest neighbour matching
+m_out <- MatchIt::matchit(
+  form_m, data = df_scaled,
+  method = "nearest", distance = "logit" # CHANGE/OK: method & distance as needed
+)
+
+matched_df <- MatchIt::match.data(m_out) # OK: get matched dataset
+
+# 4. Estimate ATT on matched sample
+att_match <- lm(as.formula(paste(Y, "~", D)), data = matched_df)
+
+summary(att_match)                       # OK: coefficient on D is ATT
+
+
+
+
+⏱ Method 7 – Staggered DiD with did2s (like Q7)
+
+(You already saw this, but here’s a generic template.)
+
+1. Typical exam questions
+
+“Using did2s, estimate ATT of SmartFlow-like intervention in panel data.”
+
+“Store-time data: estimate effect of technology adoption using two-stage DiD.”
+
+2. R template
+# ==== DID2S TEMPLATE (STAGGERED ADOPTION) ====
+
+df <- panel_data                        # CHANGE: dataset
+Y  <- "Y"                               # CHANGE: outcome
+D  <- "treated"                         # CHANGE: treatment variable (0/1, turns on and stays on)
+ID <- "unit_id"                         # CHANGE: store_id / firm_id
+Tt <- "period"                          # CHANGE: time variable (year, month, etc.)
+
+res_did2s <- did2s::did2s(
+  data       = df,
+  yname      = Y,
+  treatment  = D,
+  first_stage  = ~ 0 | !!as.symbol(ID) + !!as.symbol(Tt),  # OK: unit and time FE
+  second_stage = ~ !!as.symbol(D),                         # OK: treatment residual
+  cluster_var  = ID,
+  verbose      = FALSE
+)
+
+fixest::etable(res_did2s, fitstat = "n")  # OK: ATT is coefficient on treated
+
+
+
+
+
+📊 Method 8 – Basic 2×2 DiD with treated×post (like Q8)
+1. Typical exam questions
+
+“Construct post, treated, and did and estimate DiD effect on Y.”
+
+“Run regression Y ~ treated + post + did and also Y ~ treated*post and compare.”
+
+“Plot average Y over time for treated vs controls and check parallel trends.”
+
+2. R template
+# ==== BASIC DiD TEMPLATE (2x2) ====
+
+df <- panel_data                        # CHANGE: dataset
+Y   <- "Y"                              # CHANGE: outcome
+year_var <- "year"                      # CHANGE: time variable
+country_var <- "country"                # CHANGE: unit (or any group id)
+treated_countries <- c("E","F","G")     # CHANGE: names of treated groups
+cut_year <- 1994                        # CHANGE: treatment start year
+
+# 1. Create post, treated, and interaction did
+df <- df |>
+  dplyr::mutate(
+    post    = as.numeric(.data[[year_var]] >= cut_year),  # OK
+    treated = as.numeric(.data[[country_var]] %in% treated_countries), # OK
+    did     = post * treated                              # OK
+  )
+
+# 2. DiD regression: spec 1
+fit1 <- lm(as.formula(paste(Y, "~ treated + post + did")), data = df)
+
+# 3. DiD regression: spec 2 (interaction)
+fit2 <- lm(as.formula(paste(Y, "~ treated * post")), data = df)
+
+summary(fit1)                              # OK: coef on did = DiD effect
+summary(fit2)                              # OK: coef on treated:post = DiD effect
+
+# 4. Parallel trends plot
+plot_df <- df |>
+  dplyr::group_by(.data[[year_var]], treated) |>
+  dplyr::summarise(mean_Y = mean(.data[[Y]]), .groups = "drop") |>
+  dplyr::mutate(
+    group = ifelse(treated == 1, "treated", "control")
+  )
+
+ggplot2::ggplot(plot_df, ggplot2::aes(x = .data[[year_var]], y = mean_Y, color = group)) +
+  ggplot2::geom_line() +
+  ggplot2::geom_vline(xintercept = cut_year, linetype = "dashed") +
+  ggplot2::labs(x = "Year", y = paste("Mean", Y), color = "Group")
+  
+  
+  
+
+💡 How to use this in the exam
+
+Identify the method from the wording:
+
+“g-computation” → Method 1 / Q1 template
+
+“fixed effects” / “within store” → Method 2
+
+“compare models with and without confounders” → Method 3
+
+“doubly robust / propensity + outcome model” → Method 4
+
+“individual treatment effects / lift” → Method 5
+
+“matching estimator” → Method 6
+
+“staggered rollout, did2s” → Method 7
+
+“treated, post, treated×post, parallel trends” → Method 8
+
+Copy the relevant template chunk.
+
+Change only the lines marked # CHANGE::
+
+dataset name
+
+variable names
+
+list of confounders
+
+treatment timing / treated groups
+
+cost, etc.
+
+
+
+
+
+===================== Lab 7 ================================================================================================
+============================================================================================================================
+
+1️⃣ IPW + ATE (like Exercise 4 & 7)
+Typical exam questions
+
+“Estimate the Average Treatment Effect (ATE) of treatment T on outcome Y using inverse probability weighting (IPW).”
+
+“Fit a propensity score model, compute IPW weights, and then estimate the causal effect of T on Y.”
+
+“Check whether the propensity-score-based weights balance confounders.”
+
+Step-by-step workflow
+
+Identify:
+
+Treatment: T
+
+Outcome: Y
+
+Confounders: X1, X2, ...
+
+Dataset: df
+
+Fit a logistic regression: T ~ confounders
+
+Get predicted probabilities (pscore)
+
+Compute IPW weights (use wt_ate() if allowed)
+
+(Optionally) Check weight distribution and SMDs
+
+Run weighted regression: Y ~ T, weights = IPW
+
+Interpret coefficient on T as ATE
+
+R template (every line annotated)
+# ---------- STEP 0: Setup ----------
+library(dplyr)          # no change needed
+library(broom)          # no change needed
+library(propensity)     # no change needed
+library(ggplot2)        # no change needed
+
+# ---------- STEP 1: Name core pieces ----------
+df <- YOUR_DATAFRAME        # CHANGE: put your data frame name here (e.g., nhefs_complete_uc)
+T_var <- "TREATMENT_VAR"    # CHANGE: string name of treatment variable (e.g., "qsmk")
+Y_var <- "OUTCOME_VAR"      # CHANGE: string name of outcome variable (e.g., "wt82_71")
+
+confounders <- c(           # CHANGE: list confounders based on question
+  "conf1",                  # CHANGE: replace with real variable (e.g., "age")
+  "conf2",                  # CHANGE: replace with real variable (e.g., "smokeintensity")
+  "conf3"                   # CHANGE: add/remove lines as needed
+)
+
+# ---------- STEP 2: Propensity score model ----------
+ps_formula <- as.formula(                       # no change needed in structure
+  paste(T_var, "~", paste(confounders, collapse = " + ")) 
+)
+
+ps_model <- glm(                               
+  ps_formula,                                  # no change: uses ps_formula defined above
+  family = binomial(),                         # no change: treatment is binary
+  data = df                                    # CHANGE: ensure df is your data frame
+)
+
+# ---------- STEP 3: Get propensity scores + IPW weights ----------
+df <- ps_model |>
+  broom::augment(type.predict = "response", data = df) |> 
+  # no change: adds .fitted column with predicted probabilities
+  dplyr::mutate(
+    wts = propensity::wt_ate(.fitted, !!rlang::sym(T_var))   
+    # no change in structure; uses ATE weights; ensure T_var is 0/1
+  )
+
+# ---------- STEP 4: Inspect weights (optional but good) ----------
+ggplot(df, aes(x = wts)) + 
+  geom_histogram(bins = 50) +                 # CHANGE: adjust bins if needed
+  scale_x_log10() +                           # no change: log scale often useful
+  labs(x = "IPW Weights") +                   # no change or tweak label
+  theme_minimal()                             # no change
+
+# ---------- STEP 5: Weighted outcome regression for ATE ----------
+ate_formula <- as.formula(
+  paste(Y_var, "~", T_var)                    # no change: model Y ~ T
+)
+
+ipw_model <- lm(
+  ate_formula,                                # no change: uses formula above
+  data = df,                                  # CHANGE: ensure df is correct data
+  weights = wts                               # no change: uses IPW weights
+)
+
+ipw_result <- broom::tidy(ipw_model, conf.int = TRUE) |>
+  dplyr::filter(term == T_var)                # no change: isolates treatment effect
+
+print(ipw_result)                             # no change: shows ATE estimate & CI
+
+
+
+
+
+2️⃣ Randomization & SMD / Love Plot (Exercise 5 style)
+Typical exam questions
+
+“Simulate random assignment of treatment and show improvement in balance.”
+
+“Compare SMDs between non-random groups and randomized groups.”
+
+Workflow
+
+Start from observational data df
+
+Compute SMDs for original grouping (e.g., T)
+
+Randomly split into two groups (smpl = 0/1)
+
+Compute SMDs for random groups
+
+(Optional) Love plot to compare
+
+R template
+library(dplyr)          # no change
+library(halfmoon)       # or tidysmd, depending on lab
+library(ggplot2)        # no change
+library(tibble)         # for rowid_to_column if needed
+
+df <- YOUR_DATAFRAME                     # CHANGE: your dataset
+group_var <- "ORIGINAL_GROUP_VAR"        # CHANGE: e.g., "net"
+balance_vars <- c(                       # CHANGE: variables to check balance
+  "var1",                                # CHANGE: e.g., "income"
+  "var2",                                # CHANGE: e.g., "health"
+  "var3"                                 # CHANGE: e.g., "temperature"
+)
+
+# Add rowid (if not present)
+df <- df |> tibble::rowid_to_column(var = "rowid")  # no change unless rowid exists
+
+# ---------- Original (non-random) SMD ----------
+smd_nonrandom <- halfmoon::tidy_smd(
+  df,                                 # no change
+  balance_vars,                       # no change: defined above
+  !!rlang::sym(group_var)             # no change: original group
+)
+# inspect
+smd_nonrandom                         # no change
+
+# ---------- Create randomized split ----------
+set.seed(123)                         # CHANGE: set seed if needed or remove
+split_0 <- df |>
+  dplyr::slice_sample(prop = 0.5) |>
+  dplyr::mutate(smpl = 0)             # no change: first random half
+
+split_1 <- df[-split_0$rowid, ] |>    
+  dplyr::mutate(smpl = 1)             # no change: remaining rows
+
+split_data <- dplyr::bind_rows(split_0, split_1)  # no change
+
+# ---------- SMD for randomized groups ----------
+smd_random <- halfmoon::tidy_smd(
+  split_data,                         # no change
+  balance_vars,                       # no change
+  smpl,                               # no change: new random group variable
+  wts = NULL                          # no change: unweighted
+)
+
+# ---------- Combine & Love plot ----------
+plot_df <- smd_random |>
+  mutate(sample_type = "random") |>
+  bind_rows(
+    smd_nonrandom |> mutate(sample_type = "non-random")
+  )                                   # no change in structure
+
+ggplot(plot_df,
+       aes(x = abs(smd), y = variable, color = sample_type)) +
+  halfmoon::geom_love()               # no change: love plot
+
+
+
+
+
+
+3️⃣ FWL / Residual Regression (Exercise 6 style)
+Typical exam questions
+
+“Show the Frisch-Waugh-Lovell theorem for treatment T and outcome Y controlling for X.”
+
+“Use residual regression to obtain the same coefficient as full regression.”
+
+Workflow
+
+Fit full model: Y ~ T + X
+
+Regress T ~ X, get residuals T_res
+
+Regress Y ~ X, get residuals Y_res
+
+Regress Y_res ~ T_res
+→ coefficient on T_res = coefficient on T in full model
+
+R template
+library(dplyr)   # no change
+library(broom)   # no change
+
+df <- YOUR_DATAFRAME                     # CHANGE: your data
+Y_var <- "OUTCOME_VAR"                   # CHANGE: e.g., "default"
+T_var <- "TREATMENT_VAR"                 # CHANGE: e.g., "credit_limit"
+confounders <- c("conf1", "conf2")       # CHANGE: control variables
+
+# ---------- Full regression (reference) ----------
+full_formula <- as.formula(
+  paste(Y_var, "~", T_var, "+", paste(confounders, collapse = " + "))
+)
+
+full_model <- lm(full_formula, data = df)   # no change except df
+broom::tidy(full_model)                     # inspect; coefficient on T_var
+
+# ---------- Step 1: Debias T (regress T on X) ----------
+debias_formula <- as.formula(
+  paste(T_var, "~", paste(confounders, collapse = " + "))
+)
+
+debias_model <- lm(debias_formula, data = df)   # no change except df
+
+df <- df |>
+  mutate(T_res = resid(debias_model))           # no change: residualized T
+
+# ---------- Step 2: Denoise Y (regress Y on X) ----------
+denoise_formula <- as.formula(
+  paste(Y_var, "~", paste(confounders, collapse = " + "))
+)
+
+denoise_model <- lm(denoise_formula, data = df)  # no change
+
+df <- df |>
+  mutate(Y_res = resid(denoise_model))           # no change
+
+# ---------- Step 3: Residual regression ----------
+res_model <- lm(Y_res ~ T_res, data = df)        # no change
+broom::tidy(res_model)                           # compare coef on T_res vs full_model
+
+
+
+
+
+
+4️⃣ Full Causal Workflow (Exercise 7 style)
+
+Use this when the exam question is broad, like:
+
+“Using the given DAG and dataset, estimate the causal effect…”
+
+“Implement causal analysis using both regression adjustment and IPW.”
+
+You already have a generic script, but here’s a compressed version you can adapt.
+
+library(dplyr)
+library(ggdag)
+library(broom)
+library(propensity)
+library(halfmoon)
+library(estimatr)
+
+df <- YOUR_DATAFRAME                      # CHANGE
+T_var <- "TREATMENT_VAR"                  # CHANGE
+Y_var <- "OUTCOME_VAR"                    # CHANGE
+confounders <- c("conf1", "conf2")        # CHANGE
+
+# DAG (optional, if needed)
+dag <- dagify(
+  !!rlang::sym(T_var) ~ !!!rlang::syms(confounders),
+  !!rlang::sym(Y_var) ~ !!rlang::sym(T_var) + !!!rlang::syms(confounders),
+  exposure = T_var,
+  outcome  = Y_var
+)
+ggdag(dag)                                # no change unless you tweak style
+
+# Regression adjustment
+adj_formula <- as.formula(
+  paste(Y_var, "~", T_var, "+", paste(confounders, collapse = " + "))
+)
+adj_model <- lm(adj_formula, data = df)
+broom::tidy(adj_model) |> filter(term == T_var)
+
+# Propensity model
+ps_formula <- as.formula(
+  paste(T_var, "~", paste(confounders, collapse = " + "))
+)
+ps_model <- glm(ps_formula, family = binomial(), data = df)
+
+df <- ps_model |>
+  augment(type.predict = "response", data = df) |>
+  mutate(wts = propensity::wt_ate(.fitted, !!sym(T_var)))
+
+# Weighted outcome model
+ipw_formula <- as.formula(
+  paste(Y_var, "~", T_var)
+)
+ipw_model <- lm(ipw_formula, data = df, weights = wts)
+broom::tidy(ipw_model) |> filter(term == T_var)
+
+# Robust SE
+ipw_robust <- lm_robust(ipw_formula, data = df, weights = wts)
+broom::tidy(ipw_robust) |> filter(term == T_var)
+
+
+
+
+
+
+5️⃣ Rubin Causal Model: ATE / ATT / ATU & Selection Bias (Exercise 8)
+
+These questions are mostly theory, little or no R.
+
+Typical exam questions:
+
+Define ATE, ATT, ATU formally.
+
+Show observed difference = ATE + selection bias.
+
+Keep this as a formulas block:
+
+# No coding usually required, but you can store values:
+ATE  <- mean(Y1) - mean(Y0)   # conceptual, not actual code in exam
+ATT  <- mean(Y1[D==1]) - mean(Y0[D==1])
+ATU  <- mean(Y1[D==0]) - mean(Y0[D==0])
+
+# Selection bias if ATE known and observed difference given:
+obs_diff <- mean(Y[D==1]) - mean(Y[D==0])  # from question
+ATE_true <- ATE_FROM_QUESTION              # CHANGE
+selection_bias <- obs_diff - ATE_true      # no change
+
+
+
+
+
+
+6️⃣ IV / Wald Estimator (Exercise 9)
+Typical questions
+
+“Given first stage and reduced form, derive the IV estimate.”
+
+“Show that β_IV = Cov(Z,Y)/Cov(Z,D).”
+
+R template to compute from data:
+
+df <- YOUR_DATAFRAME               # CHANGE
+Z_var <- "INSTRUMENT_VAR"          # CHANGE: e.g., "Z"
+D_var <- "TREATMENT_VAR"           # CHANGE: e.g., "D"
+Y_var <- "OUTCOME_VAR"             # CHANGE: e.g., "Y"
+
+# Reduced form: Y ~ Z
+rf <- lm(as.formula(paste(Y_var, "~", Z_var)), data = df)
+rho_hat <- coef(rf)[Z_var]         # no change except names
+
+# First stage: D ~ Z
+fs <- lm(as.formula(paste(D_var, "~", Z_var)), data = df)
+pi_hat <- coef(fs)[Z_var]          # no change
+
+beta_iv <- rho_hat / pi_hat        # IV (Wald) estimate
+beta_iv                             # print
+
+
+Or using covariance directly:
+
+beta_iv_cov <- cov(df[[Z_var]], df[[Y_var]]) / 
+               cov(df[[Z_var]], df[[D_var]])  # no change
+beta_iv_cov
+
+
+
+
+
+
+7️⃣ IV Elasticity (Exercise 10)
+Typical questions
+
+“Estimate elasticity of demand using an instrument (shipping_cost).”
+
+“Why is OLS elasticity biased? Compute IV elasticity using RF/FS.”
+
+R template:
+
+df <- YOUR_DATAFRAME                        # CHANGE
+Z_var  <- "INSTRUMENT_VAR"                  # CHANGE: e.g., "shipping_cost"
+Y_log  <- "log_QUANTITY_VAR"                # CHANGE: e.g., "log(quantity)"
+P_log  <- "log_PRICE_VAR"                   # CHANGE: e.g., "log(total_price)"
+
+# Reduced form: log(Q) ~ Z
+rf <- lm(as.formula(paste(Y_log, "~", Z_var)), data = df)
+rf_coef <- coef(rf)[Z_var]                  # no change
+
+# First stage: log(P) ~ Z
+fs <- lm(as.formula(paste(P_log, "~", Z_var)), data = df)
+fs_coef <- coef(fs)[Z_var]                  # no change
+
+iv_elasticity <- rf_coef / fs_coef          # IV elasticity
+iv_elasticity
+
+
+
+
+===================== Lab 9 ================================================================================================
+============================================================================================================================
+
+🧩 TOPIC 1 – Markov Chains: Probability After k Steps
+
+(Exercise 1, also part of 5)
+
+Typical exam question types
+
+“Given this transition matrix, what’s the probability that a customer is still active after 6 months?”
+
+“What is the probability a system starting in state i is in state j after k steps?”
+
+“Given initial distribution over states, what’s the distribution after k steps?”
+
+General workflow
+
+Write the transition matrix 
+𝑃
+P.
+
+Choose k (number of steps / months / years).
+
+Raise matrix to power k: 
+𝑃
+𝑘
+P
+k
+.
+
+Define initial state / distribution.
+
+Multiply initial distribution by 
+𝑃
+𝑘
+P
+k
+.
+
+Optionally sum some states (e.g., non-churn states).
+
+R template
+# ----- 1. Define the transition matrix P -----
+P <- matrix(
+  c(
+    # row 1 probabilities (from state 1 to all states)
+    p11, p12, p13, p14,  # <-- CHANGE these numbers as per exam transition matrix
+    # row 2 probabilities (from state 2 to all states)
+    p21, p22, p23, p24,  # <-- CHANGE these
+    # row 3 probabilities (from state 3 to all states)
+    p31, p32, p33, p34,  # <-- CHANGE these
+    # row 4 probabilities (from state 4 to all states)
+    p41, p42, p43, p44   # <-- CHANGE these
+  ),
+  nrow = 4,              # <-- CHANGE 4 to number of states in exam (e.g., 3, 5, ...)
+  byrow = TRUE           # keep TRUE unless you really want to fill by column
+)
+
+# ----- 2. Choose k (number of steps) -----
+k <- 6                   # <-- CHANGE to exam's time horizon (e.g., 3 months, 10 years)
+
+# ----- 3. Compute P^k using expm -----
+Pk <- expm::`%^%`(P, k)  # no change, just uses k and P
+
+# ----- 4. Define initial distribution over states -----
+# Example: starting 100% in state 1
+start <- matrix(c(1, 0, 0, 0), nrow = 1)  # <-- CHANGE vector to match exam start state or mix of states
+# e.g. 60% state1, 40% state2, others 0%: c(0.6, 0.4, 0, 0)
+
+# ----- 5. Distribution after k steps -----
+dist_k <- start %*% Pk   # no change, standard formula
+
+# ----- 6. Extract or sum probabilities of interest -----
+# Example: probability of being in state 4 after k steps
+prob_state4 <- dist_k[1, 4]        # <-- CHANGE column index (4) to the target state index
+
+# Example: probability of being in "non-churn" states 1–3
+prob_non_churn <- sum(dist_k[1, 1:3])  # <-- CHANGE 1:3 to whichever states are "success" in exam
+
+
+
+
+
+
+🧩 TOPIC 2 – Stationary / Steady-State Distribution π
+
+(Exercise 2)
+
+Typical exam question types
+
+“Find the stationary distribution π of this Markov chain.”
+
+“Compute the long-run proportion of time spent in each state.”
+
+“Verify that πP = π and entries sum to 1.”
+
+General workflow
+
+Define P (transition matrix).
+
+Set up equations: 
+(
+𝐼
+−
+𝑃
+𝑇
+)
+𝜋
+𝑇
+=
+0
+(I−P
+T
+)π
+T
+=0 + constraint 
+∑
+𝜋
+𝑖
+=
+1
+∑π
+i
+	​
+
+=1.
+
+Solve linear system using qr.solve.
+
+Check pi %*% P equals pi and sum of entries is 1.
+
+R template
+# ----- 1. Define transition matrix P -----
+P <- matrix(
+  c(
+    # fill with exam matrix row by row:
+    p11, p12,      # <-- CHANGE number of entries & values according to exam
+    p21, p22       # example 2-state; for n states add more numbers
+  ),
+  nrow = 2,        # <-- CHANGE to number of states n
+  byrow = TRUE
+)
+
+# ----- 2. Construct matrix A for (I - P)^T plus sum-to-1 row -----
+n <- nrow(P)              # n = number of states, no change
+I <- diag(n)              # identity matrix of size n
+
+A <- rbind(
+  t(I - P),               # encodes πP = π
+  rep(1, n)               # encodes π1 + ... + πn = 1
+)
+
+# ----- 3. Construct right-hand side vector b -----
+b <- c(rep(0, n), 1)      # zeros for first n equations, 1 for sum-to-1
+
+# ----- 4. Solve for stationary distribution π -----
+pi <- qr.solve(A, b)      # no change; returns length-n vector
+
+# ----- 5. Check properties -----
+pi %*% P                  # should be very close to pi (same numbers)
+sum(pi)                   # should be 1
+
+
+During exam: just change P and nrow, everything else stays almost identical.
+
+
+
+
+
+
+🧩 TOPIC 3 – Metropolis–Hastings (MH) Sampler
+
+(Exercise 4 – Poisson pmf)
+
+Typical exam question types
+
+“Implement an MH algorithm to sample from a given distribution (e.g., Poisson(λ), Normal, etc.).”
+
+“Use ±1 random walk proposal for a discrete distribution.”
+
+“Compare empirical quantiles/mean/variance with theoretical values.”
+
+General workflow
+
+Define target distribution (pmf or pdf) or use given acceptance function.
+
+Choose proposal mechanism (e.g., x ± 1 with prob 1/2).
+
+Initialize starting value and number of iterations n.
+
+Loop: propose → compute α → accept/reject → store.
+
+Analyze samples: quantiles/mean etc.
+
+R template: discrete ±1 MH (Poisson as example)
+# ----- 1. Define target distribution parameters -----
+lambda <- 20                       # <-- CHANGE λ to exam value if Poisson, or other params
+
+# If exam gives alpha() directly, you can skip this target_pmf() part.
+target_pmf <- function(x) {        # <-- CHANGE formula if exam uses different target (e.g. Binomial)
+  dpois(x, lambda = lambda)        # Poisson pmf at x
+}
+
+# ----- 2. MH settings -----
+n <- 2000                          # <-- CHANGE number of samples required by exam
+x <- 1                             # <-- CHANGE starting value x0 as asked in exam
+samples <- numeric(n)              # allocate vector of length n
+samples[1] <- x                    # store initial state
+
+# ----- 3. Main MH loop -----
+for (t in 2:n) {
+  # --- Proposal step: random walk ±1 (discrete state space) ---
+  if (x > 0) {                     # <-- CHANGE rule if state space includes negatives or has different boundaries
+    # if x > 0, propose x+1 or x-1 with equal probability
+    if (runif(1) < 0.5) {
+      y <- x + 1
+    } else {
+      y <- x - 1
+    }
+  } else {                         # at lower boundary (here 0)
+    y <- x + 1                     # <-- CHANGE if exam uses other boundary behavior
+  }
+
+  # --- Compute acceptance probability α ---
+  # α = min(1, target(y)/target(x)) when proposal symmetric
+  a <- min(1, target_pmf(y) / target_pmf(x))  # <-- CHANGE formula if proposal not symmetric or exam gives α
+
+  # --- Accept/reject step ---
+  if (runif(1) < a) {
+    x <- y                         # accept proposal
+  }                                # else: reject (x stays the same)
+
+  # --- Store current state ---
+  samples[t] <- x
+}
+
+# ----- 4. Compare sample summary with theory -----
+probs <- c(0.1, 0.25, 0.5, 0.75, 0.9)    # <-- CHANGE which quantiles exam asks for
+sample_q <- quantile(samples, probs)     # empirical quantiles
+theory_q <- qpois(probs, lambda)         # <-- CHANGE to appropriate q*() function if not Poisson
+cbind(probs, sample_q, theory_q)
+
+
+
+
+
+
+🧩 TOPIC 4 – Business Markov Chain: Loans / Portfolio / Absorbing States
+
+(Exercise 5)
+
+Typical exam question types
+
+“Given initial portfolio distribution, what is composition after k years?”
+
+“If a loan starts as Good, what is the probability it is Paid after 20 years?”
+
+“If a loan starts as Risky, what proportion eventually become Bad / Paid?”
+
+General workflow
+
+Create P (loan transitions).
+
+For portfolio questions: multiply initial vector by 
+𝑃
+𝑘
+P
+k
+.
+
+For single-state questions: start vector = unit vector of that state, multiply by 
+𝑃
+𝑘
+P
+k
+, read off target state entry.
+
+For very long time horizon, treat Paid/Bad as absorbing and use large k.
+
+R template
+# ----- 1. Define loan transition matrix P -----
+P <- matrix(
+  c(
+    # from Good row
+    0.70, 0.05, 0.03, 0.22,   # <-- CHANGE to exam's "Good" row
+    # from Risky row
+    0.05, 0.55, 0.35, 0.05,   # <-- CHANGE to exam's "Risky" row
+    # from Bad row
+    0.00, 0.00, 1.00, 0.00,   # <-- CHANGE if Bad has different behavior
+    # from Paid row
+    0.00, 0.00, 0.00, 1.00    # <-- CHANGE if Paid is not fully absorbing
+  ),
+  nrow = 4, byrow = TRUE      # <-- CHANGE 4 if number of states different
+)
+
+# ----- (A) Portfolio after k years -----
+k <- 2                                   # <-- CHANGE to time horizon in exam
+P_k <- expm::`%^%`(P, k)
+
+pi0 <- matrix(c(0.6, 0.4, 0, 0), nrow = 1)  # <-- CHANGE to exam's initial distribution (Good, Risky, Bad, Paid)
+pi_k <- pi0 %*% P_k                         # distribution after k years
+
+# ----- (B) Probability that a "Good" loan is Paid after k years -----
+k <- 20                                   # <-- CHANGE to exam's k
+P_k <- expm::`%^%`(P, k)                  # reuse or recompute
+
+start_good <- matrix(c(1, 0, 0, 0), nrow = 1)  # <-- CHANGE (1,0,0,0) to unit vector of starting state
+dist_good_k <- start_good %*% P_k              # distribution after k years
+
+prob_good_to_paid_k <- dist_good_k[1, 4]       # <-- CHANGE column index 4 to target state index (e.g. "Paid")
+prob_good_to_paid_pct <- prob_good_to_paid_k * 100  # convert to percent if needed
+
+
+
+
+
+
+🧩 TOPIC 5 – Covariance: Classical vs “All-Differences”
+
+(Exercise 6)
+
+Typical exam question types
+
+“Compute covariance between two vectors a and b using the standard definition.”
+
+“Compute covariance using all pairwise differences and compare with classical one.”
+
+“Investigate how results change with different sample sizes.”
+
+General workflow
+
+Generate (or be given) sequences a and b.
+
+Classical cov: mean of (a - mean(a)) * (b - mean(b)).
+
+Alternative cov: implement double sum over k and t of (lead(a,k)-a)*(lead(b,k)-b)/(T^2).
+
+Compare values as T grows.
+
+R template for one sample size T
+# ----- 1. Choose sample size -----
+T <- 100                            # <-- CHANGE sample size to exam value
+
+# ----- 2. Generate or load a and b -----
+# Example generation (change to match exam setup):
+a <- rnorm(T, mean = 1, sd = 1)     # <-- CHANGE distribution/parameters according to question
+b <- a + rnorm(T, mean = 4, sd = 2) # <-- CHANGE relation between a and b as needed
+# If exam gives actual data, REMOVE these lines and just use given a, b vectors.
+
+# ----- 3. Classical covariance -----
+cov_classic <- mean( (a - mean(a)) * (b - mean(b)) )  # no change, formula definition
+
+# ----- 4. "All-differences" covariance -----
+alt_cov <- 1:(T-1) |>
+  purrr::map_dbl(
+    \(k) {
+      # compute Δ_k a_t * Δ_k b_t and sum over t
+      ( dplyr::lead(a, k) - a ) * ( dplyr::lead(b, k) - b ) |>
+        sum(na.rm = TRUE)
+    }
+  ) |>
+  sum(na.rm = TRUE) / (T * T)      # divide by T^2 as in formula
+
+# ----- 5. Compare -----
+cov_classic
+alt_cov
+
+
+If exam needs multiple sample sizes in one table, wrap this in a for loop or purrr::map as done in the lab.
+
+📌 How to Use This in the Exam
+
+Identify topic of the question (Markov chain evolution, stationary, MH, portfolio, covariance).
+
+Jump to that topic’s template.
+
+Change:
+
+Matrix entries (pij)
+
+Number of states (nrow)
+
+Time horizon (k, number of steps)
+
+Initial state vector (start, pi0)
+
+Target state index in dist_k[ , j ]
+
+Distribution parameters (lambda, means, sds)
+
+Sample size (n, T)
+
+Quantiles (probs)
+
