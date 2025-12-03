@@ -894,3 +894,225 @@ alt_cov \<- 1:(T-1) \|\> purrr::map_dbl( (k) sum((dplyr::lead(a, k) - a) \* (dpl
 # 5. Compare
 
 cov_classic alt_cov
+
+
+
+
+
+
+
+
+
+
+---
+title: "Lab 8 – Method Selection Guide (Exam Cheat Sheet)"
+format: html
+editor: source
+---
+
+# Lab 8 – Method Selection Cheat Sheet
+
+This guide helps you decide **which causal method to use** when your professor gives a dataset on the exam.
+Each section explains:
+- When to use the method
+- Typical exam questions
+- Which Lab 8 problem it matches
+- Which R template to use
+
+---
+
+# 0. Quick Decision Table
+
+| Dataset Structure                        | Question Type               | Best Method | Lab Q | Template |
+|------------------                        |----------------              |-------------|-------|----------|
+| Cross-sectional, D binary                | Estimate ATE w/ confounders | G-Computation | Q1 | Section 1 |
+| Panel data, unobserved unit traits       | Within-effect               | Fixed Effects | Q2 | Section 2 |
+| Compare naive vs adjusted models          |Model selection               | Model Comparison | Q3 | Section 3 |
+| Confounders + want robust estimator       | ATE                           | Doubly Robust | Q3(2) | Section 4 |
+| Customer/business decision                | ITE + targeting              | Lift Modeling | Q4 | Section 5 |
+| Need matched pairs                       | ATT                           | Matching | Q5 | Section 6 |
+| Staggered treatment rollout               | ATT under rollout            | Staggered DiD (did2s) | Q7 | Section 7 |
+| One treated group × one treated year      | Classic DiD                   | Q8 | Section 8 |
+
+---
+
+# 1. G-Computation (Q1)
+
+## When to Use
+- Cross-sectional data
+- Binary treatment `D`
+- Many confounders
+- You want ATE from predicted counterfactuals
+
+## Typical Exam Questions
+- "Use g-computation to estimate the ATE of D on Y."
+- "Predict potential outcomes Y(1) and Y(0)."
+- "Clone the data for treated and untreated cases."
+
+## R Template
+```r
+# ==== G-COMPUTATION TEMPLATE ====
+df <- my_data                     # CHANGE
+Y <- "Y"                          # CHANGE
+D <- "D"                          # CHANGE
+Xs <- c("X1", "X2")              # CHANGE
+
+form_g <- as.formula(paste(Y, "~", paste(c(D, Xs), collapse = " + ")))
+fit_g <- lm(form_g, data = df)
+
+df_stack <- dplyr::bind_rows(
+  df |> dplyr::mutate(!!D := 1),
+  df |> dplyr::mutate(!!D := 0)
+)
+
+pred <- broom::augment(fit_g, newdata = df_stack)
+``` 
+
+---
+
+# 2. Fixed Effects (Q2)
+
+## When to Use
+- Panel data (unit × time)
+- Unit-specific unobserved confounders
+- Remove time-invariant bias
+
+## Typical Exam Questions
+- "Estimate within-unit effect using store FE."
+- "Interpret fixed-effect slopes."
+
+## R Template
+```r
+# ==== FIXED EFFECTS (LM) ====
+df <- panel_data                 # CHANGE
+Y <- "Y"                         # CHANGE
+X <- "X"                         # CHANGE
+ID <- "unit_id"                  # CHANGE
+
+form_fe <- as.formula(paste(Y, "~", X, "+ factor(", ID, ")"))
+lm(form_fe, data=df)
+```
+
+---
+
+# 3. Model Comparison (Q3)
+
+## When to Use
+- You must justify best causal model
+- Compare naive vs adjusted vs interaction models
+
+## Typical Exam Questions
+- "Compare AIC/BIC across models."
+- "How does adding confounders change D's effect?"
+
+## R Template
+```r
+form1 <- as.formula(paste(Y, "~", D))
+form2 <- as.formula(paste(Y, "~", D, "+", paste(X, collapse=" + ")))
+form3 <- as.formula(paste(Y, "~", D, "+", paste(X, collapse=" + "), "+ (X1)^2"))
+```
+
+---
+
+# 4. Doubly Robust Estimation (Q3(2))
+
+## When to Use
+- Need strong causal identification
+- Want PS model + outcome model combined
+
+## Typical Exam Questions
+- "Estimate ATE using a doubly robust estimator."
+- "Fit PS and two outcome models."
+
+## R Template
+```r
+doubly_robust <- function(df, Y, D, X){
+  ps_mod <- glm(as.formula(paste(D, "~", paste(X, collapse=" + "))), data=df, family=binomial)
+  p_hat <- predict(ps_mod, type="response")
+  # outcome models and DR formula follow...
+}
+```
+
+---
+
+# 5. ITE Targeting / Lift Modeling (Q4)
+
+## When to Use
+- Business / marketing treatment decisions
+- Need to predict Y(1), Y(0)
+- Optimize who to treat
+
+## Typical Exam Questions
+- "Compute lift and create targeting strategy."
+- "Predict individual treatment effects."
+
+## R Template
+```r
+r1 <- predict(model, newdata = df |> dplyr::mutate(D=1))
+r0 <- predict(model, newdata = df |> dplyr::mutate(D=0))
+df$lift <- r1 - r0 - cost
+```
+
+---
+
+# 6. Matching Estimator (Q5)
+
+## When to Use
+- Binary treatment
+- Confounders observed
+- Need model-free ATE estimate
+
+## Typical Exam Questions
+- "Perform nearest-neighbour matching."
+- "Estimate ATT from matched data."
+
+## R Template
+```r
+m_out <- MatchIt::matchit(D ~ X1 + X2, data=df, method="nearest")
+matched <- MatchIt::match.data(m_out)
+lm(Y ~ D, data=matched)
+```
+
+---
+
+# 7. Staggered DiD (Q7)
+
+## When to Use
+- Panel data
+- Treatment adoption varies by unit and time
+
+## Typical Exam Questions
+- "Estimate ATT using did2s."
+- "Include unit and time FE."
+
+## R Template
+```r
+res <- did2s::did2s(
+  data=df,
+  yname=Y,
+  treatment="treated",
+  first_stage = ~ 0 | unit_id + year,
+  second_stage = ~ treated
+)
+```
+
+---
+
+# 8. Classic DiD (Q8)
+
+## When to Use
+- Panel data
+- One treated group + one treated year
+
+## Typical Exam Questions
+- "Construct treated, post, and interaction."
+- "Check parallel trends."
+
+## R Template
+```r
+df <- df |> dplyr::mutate(
+  post = year >= 1994,
+  treated = as.numeric(country %in% c("E","F","G")),
+  did = post * treated
+)
+lm(Y ~ treated + post + did, data=df)
